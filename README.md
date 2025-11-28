@@ -25,7 +25,7 @@ Aplicacion web para gestionar objetos de direcciones y grupos en firewalls Forti
 
 1. **Clonar el repositorio:**
 ```bash
-git clone <url-del-repositorio>
+git clone https://github.com/ctellolasalle/fortigate-manager
 cd fortigate-manager
 ```
 
