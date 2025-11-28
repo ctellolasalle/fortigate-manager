@@ -41,17 +41,35 @@ cp .env.example .env
 
 4. **Editar el archivo `.env`** con tus credenciales:
 ```env
-# Configuracion del servidor
+# Configuración del servidor  
 PORT=3000
-HOST=localhost
+HOST=0.0.0.0
 NODE_ENV=development
 
-# Configuracion de FortiGate
-FORTIGATE_HOST=10.0.10.1
-FORTIGATE_USERNAME=admin
-FORTIGATE_PASSWORD=tu_password_aqui
+# Configuración de FortiGate
+FORTIGATE_HOST=192.168.0.1
+FORTIGATE_USERNAME=usuario
+FORTIGATE_PASSWORD=contraseña
 FORTIGATE_PORT=22
 FORTIGATE_TIMEOUT=20000
+
+# Autenticación Google OAuth 2.0
+GOOGLE_CLIENT_ID=0000000000-xxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-_XXXXXXXXXXX_XXXXXXXXXXX
+GOOGLE_CALLBACK_URL=https://sudominio.com/auth/google/callback
+GOOGLE_WORKSPACE_DOMAIN=sudominio.com
+
+# Seguridad de sesiones
+SESSION_SECRET=genera-una-clave-aleatoria-de-64-caracteres-aqui
+
+# CONFIGURACIÓN DE PROXY - AGREGAR ESTAS LÍNEAS
+TRUST_PROXY=true
+BEHIND_PROXY=true
+
+# CONFIGURACIÓN DE SESIÓN MEJORADA - AGREGAR ESTAS LÍNEAS  
+SESSION_NAME=fortigate_session
+SESSION_MAX_AGE=86400000
+SESSION_SECURE=false
 ```
 
 ## Uso
