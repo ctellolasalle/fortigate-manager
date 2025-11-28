@@ -105,7 +105,7 @@ Para una instalación rápida y automatizada en un contenedor LXC (Ubuntu/Debian
 
     ```bash
     # Navega a la carpeta del proyecto
-    cd /ruta/a/tu/FortiGateManager
+    cd /root/fortigate-manager
 
     # Da permisos de ejecución al script
     chmod +x scripts/install.sh
