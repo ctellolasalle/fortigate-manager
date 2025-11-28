@@ -79,6 +79,11 @@ async function checkAuthStatus() {
         if (data.authenticated) {
             currentUser = data.user;
             updateUserInterface(data.user);
+            
+            // Ocultar loading y mostrar la app
+            document.getElementById('loading-overlay').style.display = 'none';
+            document.querySelector('.app-container').style.display = 'block';
+            
             return Promise.resolve();
         } else {
             // No autenticado, redirigir
@@ -136,6 +141,9 @@ function redirectToLogin() {
     if (authCheckInterval) {
         clearInterval(authCheckInterval);
     }
+    
+    // Ocultar loading y mostrar la app
+    document.getElementById('loading-overlay').style.display = 'none';
     
     // Limpiar storage local
     sessionStorage.clear();

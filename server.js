@@ -304,7 +304,7 @@ app.get('/login', (req, res) => {
     </head>
     <body>
       <div class="login-container">
-        <div class="logo">FortiGate Manager</div>
+        <div class="logo">ELS WiFi</div>
         <p class="subtitle">Inicia sesion con tu cuenta de Google Workspace</p>
         
         ${errorMessage ? `<div class="error">❌ ${errorMessage}</div>` : ''}
