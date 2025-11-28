@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Objetos FortiGate</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-container">
+                    <div class="logo-text">FortiGate Manager</div>
+                </div>
+                <div class="header-title">
+                    <h1></h1>
+                    <p></p>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Status Card -->
+            <div class="card status-card">
+                <div class="card-header">
+                    <h2>Estado de Conexion</h2>
+                    <div class="status-actions">
+                        <button id="reconnectBtn" class="btn btn-secondary">Reconectar</button>
+                        <button id="diagnoseBtn" class="btn btn-outline">Diagnostico</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="connectionStatus" class="connection-status">
+                        <div class="status-indicator" id="statusIndicator"></div>
+                        <span id="statusMessage">Conectando automaticamente...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs-container">
+                <div class="tabs-header">
+                    <button class="tab-button active" data-tab="devices">Objetos MAC (ELS)</button>
+                    <button class="tab-button" data-tab="groups">Grupo ELS-APP</button>
+                </div>
+
+                <!-- Devices Tab -->
+                <div id="devicesTab" class="tab-content active">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Objetos de Direcciones MAC</h2>
+                            <div class="header-actions">
+                                <button id="refreshDevicesBtn" class="btn btn-outline">Refrescar</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <!-- Filter Section -->
+                            <div class="filter-section">
+                                <label class="filter-label">Filtrar por tipo:</label>
+                                <select id="typeFilter" class="form-select">
+                                    <option value="all">Todos</option>
+                                    <option value="mac" selected>MAC</option>
+                                    <option value="subnet">Subnet</option>
+                                    <option value="fqdn">FQDN</option>
+                                    <option value="range">Range</option>
+                                </select>
+                            </div>
+
+                            <!-- Device List -->
+                            <div class="device-list-container">
+                                <div id="devicesList" class="devices-table">
+                                    <div class="loading" id="devicesLoading">
+                                        <div class="loading-spinner"></div>
+                                        <span>Cargando objetos...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Device Form -->
+                            <div class="device-form-container">
+                                <h3>Crear / Editar Objeto MAC</h3>
+                                <form id="deviceForm" class="device-form">
+                                    <div class="form-group">
+                                        <label for="deviceName">Nombre del Objeto:</label>
+                                        <div class="name-input-container">
+                                            <span class="name-prefix">ELS-</span>
+                                            <input type="text" id="deviceName" name="deviceName" class="form-input" placeholder="NOMBRE_DISPOSITIVO" required>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label for="macAddress">Direccion MAC:</label>
+                                        <div class="mac-input-container" id="macInputContainer">
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                            <span>:</span>
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                            <span>:</span>
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                            <span>:</span>
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                            <span>:</span>
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                            <span>:</span>
+                                            <input type="text" class="mac-input" maxlength="2" placeholder="00">
+                                        </div>
+                                        <small class="form-help">Ingresa la direccion MAC en formato hexadecimal</small>
+                                    </div>
+
+                                    <div class="form-actions">
+                                        <button type="submit" class="btn btn-primary">Guardar</button>
+                                        <button type="button" id="deleteDeviceBtn" class="btn btn-danger" style="display: none;">Eliminar</button>
+                                        <button type="button" id="clearFormBtn" class="btn btn-outline">Limpiar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Groups Tab -->
+                <div id="groupsTab" class="tab-content">
+                    <div class="card">
+                        <div class="card-header">
+                            <h2>Grupo de Direcciones: ELS-APP</h2>
+                            <div class="header-actions">
+                                <button id="refreshGroupBtn" class="btn btn-outline">Refrescar</button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="group-management">
+                                <div class="group-lists">
+                                    <div class="available-members">
+                                        <h3>Objetos ELS Disponibles</h3>
+                                        <div class="member-list" id="availableMembers">
+                                            <div class="loading">
+                                                <div class="loading-spinner"></div>
+                                                <span>Cargando...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="transfer-controls">
+                                        <button id="addMemberBtn" class="btn btn-primary">&gt;&gt;</button>
+                                        <button id="removeMemberBtn" class="btn btn-secondary">&lt;&lt;</button>
+                                    </div>
+
+                                    <div class="current-members">
+                                        <h3>Miembros del Grupo ELS-APP</h3>
+                                        <div class="member-list" id="currentMembers">
+                                            <div class="loading">
+                                                <div class="loading-spinner"></div>
+                                                <span>Cargando...</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="group-actions">
+                                    <button id="saveGroupBtn" class="btn btn-primary">Guardar Grupo ELS-APP</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Diagnostic Modal -->
+        <div id="diagnosticModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Diagnostico de Conexion</h3>
+                    <button class="modal-close" id="closeDiagnosticModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="diagnosticResults" class="diagnostic-results">
+                        <div class="loading">
+                            <div class="loading-spinner"></div>
+                            <span>Ejecutando diagnostico...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Notifications -->
+        <div id="notifications" class="notifications-container"></div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2024 FortiGate Manager - Herramienta de administracion de red</p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

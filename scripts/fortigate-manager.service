@@ -1,0 +1,29 @@
+[Unit]
+Description=FortiGate Manager Web App
+Documentation=https://github.com/your-repo/FortiGateManager
+After=network.target
+
+[Service]
+Type=simple
+# Cambia 'root' por un usuario sin privilegios si has creado uno
+User=root
+# IMPORTANTE: Cambia esta ruta por la ruta absoluta a tu aplicacion
+WorkingDirectory=/root/FortiGateManager
+# Carga las variables de entorno desde el archivo .env
+EnvironmentFile=/root/FortiGateManager/.env
+
+# Comando para iniciar la aplicacion
+# Usamos la ruta absoluta a npm para mayor robustez
+ExecStart=/usr/bin/npm start
+
+# Reiniciar el servicio si falla
+Restart=on-failure
+RestartSec=5
+
+# Configuracion de logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fortigate-manager
+
+[Install]
+WantedBy=multi-user.target
