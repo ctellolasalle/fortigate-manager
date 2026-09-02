@@ -154,9 +154,47 @@ async def _get_dhcp_server() -> dict:
     return results[0]
 
 
-async def _put_dhcp_server(server_data: dict) -> dict:
-    """Actualiza la configuración del servidor DHCP en FortiGate (PUT completo)."""
-    payload = {k: v for k, v in server_data.items() if k != "q_origin_key"}
+def _clean_entries_for_fortigate(entries: list) -> list:
+    """
+    Prepara la lista de reserved-address para enviar a FortiGate.
+    - Si action == 'reserved': incluye 'ip' (IP estática obligatoria).
+    - Si action == 'assign-ip': NO incluye la clave 'ip' para evitar el error 'IP address can not be 0'.
+    - 'description': hasta 255 chars.
+    - 'type': 'mac'.
+    """
+    cleaned = []
+    for e in entries:
+        action = e.get("action", "assign-ip")
+        if action not in ("assign-ip", "reserved"):
+            action = "assign-ip"
+
+        item = {
+            "id": e["id"],
+            "mac": e["mac"],
+            "type": e.get("type", "mac"),
+            "action": action,
+            "description": (e.get("description") or "").strip()[:255],
+        }
+
+        # Solo si es 'reserved' y tiene una IP válida distinta de 0.0.0.0 se envía 'ip'
+        ip_val = (e.get("ip") or "").strip()
+        if action == "reserved" and ip_val and ip_val != "0.0.0.0":
+            item["ip"] = ip_val
+        # Para 'assign-ip', NUNCA se envía la clave 'ip'
+
+        cleaned.append(item)
+    return cleaned
+
+
+async def _save_reserved_addresses(entries: list) -> dict:
+    """
+    Actualiza ÚNICAMENTE la subtabla reserved-address en FortiGate.
+    No re-envía otros campos del servidor DHCP (evita errores de CLI como 'Domain name is not valid').
+    """
+    clean_entries = _clean_entries_for_fortigate(entries)
+    payload = {
+        "reserved-address": clean_entries
+    }
 
     try:
         resp = await http_client.put(DHCP_URL, headers=HEADERS, json=payload)
@@ -302,7 +340,7 @@ async def create_reservation(reservation: DhcpReservation):
 
     target_ip = reservation.ip.strip() if reservation.ip else ""
     if reservation.action == "assign-ip":
-        target_ip = "0.0.0.0"
+        target_ip = ""
     elif reservation.action == "reserved":
         if not target_ip or target_ip == "0.0.0.0":
             raise HTTPException(status_code=422, detail="La dirección IP es obligatoria para Reserve IP")
@@ -313,15 +351,14 @@ async def create_reservation(reservation: DhcpReservation):
     new_entry = {
         "id": new_id,
         "mac": reservation.mac,
-        "ip": target_ip or "0.0.0.0",
+        "ip": target_ip,
         "description": (reservation.description or "").strip()[:255],
         "type": reservation.type or "mac",
         "action": reservation.action or "assign-ip",
     }
     entries.append(new_entry)
-    server["reserved-address"] = entries
 
-    await _put_dhcp_server(server)
+    await _save_reserved_addresses(entries)
 
     action_label = "asignada dinámica (Pool)" if new_entry["action"] == "assign-ip" else f"reservada a {target_ip}"
     return {
@@ -349,7 +386,7 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     if update.action is not None:
         target["action"] = update.action
         if update.action == "assign-ip":
-            target["ip"] = "0.0.0.0"
+            target["ip"] = ""
 
     current_action = target.get("action") or "assign-ip"
     if current_action == "reserved" and update.ip is not None:
@@ -366,8 +403,7 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     if update.type is not None:
         target["type"] = update.type
 
-    server["reserved-address"] = entries
-    await _put_dhcp_server(server)
+    await _save_reserved_addresses(entries)
 
     return {
         "success": True,
@@ -392,8 +428,7 @@ async def delete_reservation(entry_id: int):
     ip = target.get("ip", "")
 
     entries = [e for e in entries if e.get("id") != entry_id]
-    server["reserved-address"] = entries
-    await _put_dhcp_server(server)
+    await _save_reserved_addresses(entries)
 
     return {
         "success": True,
