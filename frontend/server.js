@@ -162,65 +162,69 @@ app.get('/login', (req, res) => {
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0d1117;
-      --surface: #161b22;
-      --border: #30363d;
-      --accent: #ff6b2b;
-      --accent-glow: rgba(255,107,43,0.3);
-      --text: #e6edf3;
-      --muted: #8b949e;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --primary: #1e3a8a;
+      --secondary: #f59e0b;
+      --text: #1e293b;
+      --muted: #64748b;
     }
     body {
-      font-family: 'Inter', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      background-image: radial-gradient(ellipse at 20% 50%, rgba(255,107,43,0.06) 0%, transparent 60%),
-                        radial-gradient(ellipse at 80% 20%, rgba(88,166,255,0.06) 0%, transparent 60%);
+      background-image: radial-gradient(ellipse at 20% 50%, rgba(30,58,138,0.06) 0%, transparent 60%),
+                        radial-gradient(ellipse at 80% 20%, rgba(245,158,11,0.06) 0%, transparent 60%);
     }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 16px;
       padding: 3rem 2.5rem;
-      width: min(420px, 92vw);
+      width: min(440px, 92vw);
       text-align: center;
-      box-shadow: 0 24px 64px rgba(0,0,0,0.5);
+      box-shadow: 0 10px 30px -5px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04);
     }
     .logo-icon {
-      width: 64px; height: 64px;
-      background: linear-gradient(135deg, var(--accent), #ff9a5c);
+      width: 68px; height: 68px;
+      background: linear-gradient(135deg, var(--primary), #1e40af);
       border-radius: 16px;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 2rem; margin-bottom: 1.5rem;
-      box-shadow: 0 0 32px var(--accent-glow);
+      font-size: 2.2rem; margin-bottom: 1.5rem;
+      box-shadow: 0 8px 20px rgba(30,58,138,0.25);
     }
-    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .4rem; }
-    .subtitle { color: var(--muted); font-size: .95rem; margin-bottom: 2.5rem; }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: .4rem; color: var(--text); }
+    .subtitle { color: var(--muted); font-size: .95rem; margin-bottom: 2.2rem; }
     .error-box {
-      background: rgba(248,81,73,0.1); border: 1px solid rgba(248,81,73,0.3);
-      color: #f85149; border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem;
-      font-size: .9rem; text-align: left;
+      background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.25);
+      color: #dc2626; border-radius: 8px; padding: 0.9rem; margin-bottom: 1.5rem;
+      font-size: .88rem; text-align: left;
     }
     .google-btn {
       display: inline-flex; align-items: center; gap: 12px;
-      background: #fff; color: #1f1f1f;
-      border: none; border-radius: 10px;
-      padding: 14px 28px; font-size: 1rem; font-weight: 500;
+      background: #ffffff; color: #1e293b;
+      border: 1px solid #cbd5e1; border-radius: 10px;
+      padding: 13px 26px; font-size: 1rem; font-weight: 600;
       cursor: pointer; text-decoration: none;
       transition: all .2s ease;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      box-shadow: 0 2px 5px rgba(0,0,0,0.06);
       width: 100%; justify-content: center;
     }
-    .google-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .google-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(0,0,0,0.1);
+      border-color: #94a3b8;
+    }
     .google-btn svg { flex-shrink: 0; }
     .info {
-      margin-top: 2rem; padding: 1rem; border-radius: 8px;
-      background: rgba(56,139,253,0.1); border: 1px solid rgba(56,139,253,0.2);
-      color: var(--muted); font-size: .85rem;
+      margin-top: 2rem; padding: 0.85rem; border-radius: 8px;
+      background: rgba(30,58,138,0.05); border: 1px solid rgba(30,58,138,0.12);
+      color: var(--muted); font-size: .82rem;
     }
   </style>
 </head>
