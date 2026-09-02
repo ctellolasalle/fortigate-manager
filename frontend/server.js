@@ -158,6 +158,9 @@ app.get('/login', (req, res) => {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ELS WiFi — Iniciar Sesión</title>
+  <link rel="icon" type="image/png" href="/resources/logo.png">
+  <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+  <link rel="apple-touch-icon" href="/resources/logo.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -231,7 +234,7 @@ app.get('/login', (req, res) => {
 </head>
 <body>
   <div class="card">
-    <div class="logo-icon">🛡️</div>
+    <img src="/resources/logo.png" alt="ELS Logo" class="logo-icon" style="object-fit:contain;background:#ffffff;padding:8px;border:1px solid #e2e8f0;box-shadow:0 4px 12px rgba(0,0,0,0.06);">
     <h1>ELS WiFi Manager</h1>
     <p class="subtitle">Gestión de arrendamientos DHCP V170</p>
     ${errorMsg ? `<div class="error-box">❌ ${errorMsg}</div>` : ''}
