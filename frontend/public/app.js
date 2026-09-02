@@ -1,0 +1,723 @@
+/**
+ * app.js — FortiGate DHCP V170 Manager SPA
+ * Gestión de arrendamientos DHCP vía API REST (Node proxy → FastAPI Python → FortiGate)
+ */
+
+'use strict';
+
+// ─── Estado global ─────────────────────────────────────────────────────────────
+const State = {
+  user: null,
+  leases: [],
+  filteredLeases: [],
+  availableIPs: [],
+  stats: null,
+  fortiStatus: null,
+  currentView: 'dashboard',
+  sort: { col: 'ip', dir: 'asc' },
+  searchDebounce: null,
+  pendingDelete: null,
+  editingId: null,
+};
+
+// ─── API helper ────────────────────────────────────────────────────────────────
+const API = {
+  async request(method, path, body = null) {
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+    };
+    if (body) opts.body = JSON.stringify(body);
+
+    const res = await fetch(`/api${path}`, opts);
+    const data = await res.json().catch(() => ({ success: false, message: `HTTP ${res.status}` }));
+
+    if (res.status === 401) {
+      window.location.href = '/login?error=session_required';
+      throw new Error('Sesión expirada');
+    }
+
+    if (!res.ok && data.detail) {
+      throw new Error(data.detail);
+    }
+    if (!res.ok && data.message) {
+      throw new Error(data.message);
+    }
+    if (!res.ok) {
+      throw new Error(`Error HTTP ${res.status}`);
+    }
+
+    return data;
+  },
+
+  get: (p) => API.request('GET', p),
+  post: (p, b) => API.request('POST', p, b),
+  put: (p, b) => API.request('PUT', p, b),
+  del: (p) => API.request('DELETE', p),
+};
+
+// ─── Toast ─────────────────────────────────────────────────────────────────────
+function toast(msg, type = 'info', duration = 4000) {
+  const icons = { success: '✅', error: '❌', info: 'ℹ️', warning: '⚠️' };
+  const container = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.innerHTML = `<span class="toast-icon">${icons[type]}</span><span class="toast-msg">${msg}</span>`;
+  container.appendChild(el);
+
+  setTimeout(() => {
+    el.classList.add('hide');
+    setTimeout(() => el.remove(), 280);
+  }, duration);
+}
+
+// ─── DOM helpers ───────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
+
+// ─── Modals ────────────────────────────────────────────────────────────────────
+function openModal(id) {
+  const el = $(id);
+  if (el) el.classList.add('open');
+}
+
+function closeModal(id) {
+  const el = $(id);
+  if (el) el.classList.remove('open');
+}
+
+// ─── Navigation ────────────────────────────────────────────────────────────────
+function switchView(name) {
+  // Update nav items
+  document.querySelectorAll('.nav-item').forEach((el) => {
+    el.classList.toggle('active', el.dataset.view === name);
+  });
+
+  // Show/hide views
+  document.querySelectorAll('.view').forEach((el) => {
+    el.classList.toggle('active', el.id === `view-${name}`);
+  });
+
+  State.currentView = name;
+
+  const titles = {
+    dashboard: 'Dashboard',
+    leases: 'Arrendamientos DHCP',
+    available: 'IPs Disponibles',
+  };
+  setText('breadcrumb', titles[name] || name);
+
+  // Load data for view
+  if (name === 'available') loadAvailableIPs();
+}
+
+// ─── Auth / User ────────────────────────────────────────────────────────────────
+async function loadUser() {
+  try {
+    const data = await API.get('/auth/status');
+    if (!data.authenticated) {
+      window.location.href = '/login';
+      return;
+    }
+    State.user = data.user;
+    renderUser(data.user);
+  } catch (err) {
+    console.warn('loadUser error:', err);
+  }
+}
+
+function renderUser(user) {
+  const avatar = $('user-avatar');
+  if (avatar && user.photo) {
+    avatar.src = user.photo;
+    avatar.alt = user.name || '';
+  }
+  setText('user-name', user.name || '');
+  setText('user-email', user.email || '');
+}
+
+// ─── FortiGate status ──────────────────────────────────────────────────────────
+async function loadFortiStatus() {
+  const dot = $('status-dot');
+  const txt = $('status-text');
+
+  try {
+    const data = await API.get('/system/status');
+    State.fortiStatus = data;
+
+    dot.className = 'status-dot online';
+    txt.textContent = `${data.model} · ${data.hostname}`;
+
+    setText('info-model', data.model);
+    setText('info-firmware', data.firmware);
+    setText('info-host', `${data.host}:${data.port}`);
+    setText('info-hostname', data.hostname);
+    setText('info-dhcp-id', `ID ${data.dhcp_server_id}`);
+    setText('info-range', data.v170_range);
+  } catch (err) {
+    dot.className = 'status-dot offline';
+    txt.textContent = 'Sin conexión';
+    toast(`Error de conectividad: ${err.message}`, 'error', 6000);
+  }
+}
+
+// ─── DHCP Stats ────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const data = await API.get('/dhcp/stats');
+    State.stats = data;
+
+    setText('stat-reserved', data.reserved_v170 ?? data.reserved);
+    setText('stat-free', data.available);
+    setText('stat-util', data.utilization_pct);
+    setText('info-total', data.total_addresses);
+    setText('info-available', data.available);
+    setText('prog-used', `${data.reserved_v170 ?? data.reserved} con IP fija · ${data.mac_only ?? 0} solo MAC`);
+    setText('prog-total', `${data.total_addresses} IPs en pool`);
+
+    const bar = $('progress-bar');
+    if (bar) bar.style.width = `${Math.min(100, data.utilization_pct)}%`;
+  } catch (err) {
+    console.warn('loadStats error:', err);
+  }
+}
+
+// ─── Leases ────────────────────────────────────────────────────────────────────
+async function loadLeases() {
+  const tbody = $('leases-tbody');
+  const recentTbody = $('recent-tbody');
+
+  if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-row"><div class="loading-spinner"></div> Cargando arrendamientos...</td></tr>`;
+
+  try {
+    const data = await API.get('/dhcp/reservations');
+    State.leases = data.reservations || [];
+    State.filteredLeases = [...State.leases];
+
+    // Badge en sidebar
+    setText('leases-count', State.leases.length);
+
+    applySort();
+    renderLeases();
+    renderRecentLeases(recentTbody);
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-row">❌ Error: ${err.message}</td></tr>`;
+    toast(`Error cargando arrendamientos: ${err.message}`, 'error');
+  }
+}
+
+function renderLeases() {
+  const tbody = $('leases-tbody');
+  if (!tbody) return;
+
+  const leases = State.filteredLeases;
+  setText('record-count', `${leases.length} registros`);
+
+  if (!leases.length) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No hay arrendamientos que coincidan con la búsqueda</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = leases.map((l) => `
+    <tr>
+      <td class="td-id">${l.id}</td>
+      <td class="td-desc">${escapeHtml(l.description) || '<span style="color:var(--muted-2);font-style:italic">Sin descripción</span>'}</td>
+      <td class="td-mac">${l.mac}</td>
+      <td class="td-ip">${l.ip}</td>
+      <td class="td-actions">
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="openEditModal(${l.id})" title="Editar">✏️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" onclick="openDeleteModal(${l.id})" title="Eliminar" style="color:var(--red)">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function renderRecentLeases(tbody) {
+  if (!tbody) return;
+  const recent = [...State.leases].slice(0, 8);
+
+  if (!recent.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-row">No hay arrendamientos</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = recent.map((l) => `
+    <tr>
+      <td class="td-desc">${escapeHtml(l.description) || '—'}</td>
+      <td class="td-mac">${l.mac}</td>
+      <td class="td-ip">${l.ip}</td>
+    </tr>
+  `).join('');
+}
+
+// ─── Search ────────────────────────────────────────────────────────────────────
+function handleSearch(query) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    State.filteredLeases = [...State.leases];
+  } else {
+    State.filteredLeases = State.leases.filter(
+      (l) =>
+        l.mac.toLowerCase().includes(q) ||
+        l.ip.includes(q) ||
+        (l.description || '').toLowerCase().includes(q)
+    );
+  }
+  applySort();
+  renderLeases();
+}
+
+// ─── Sort ──────────────────────────────────────────────────────────────────────
+function applySort() {
+  const { col, dir } = State.sort;
+  State.filteredLeases.sort((a, b) => {
+    let va = a[col] ?? '';
+    let vb = b[col] ?? '';
+
+    if (col === 'ip') {
+      va = ipToNum(va);
+      vb = ipToNum(vb);
+    } else if (col === 'id') {
+      va = Number(va);
+      vb = Number(vb);
+    } else {
+      va = String(va).toLowerCase();
+      vb = String(vb).toLowerCase();
+    }
+
+    if (va < vb) return dir === 'asc' ? -1 : 1;
+    if (va > vb) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+}
+
+function ipToNum(ip) {
+  return ip.split('.').reduce((acc, oct) => (acc << 8) + parseInt(oct || 0, 10), 0) >>> 0;
+}
+
+// ─── Available IPs ─────────────────────────────────────────────────────────────
+async function loadAvailableIPs() {
+  const tbody = $('available-tbody');
+  if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="empty-row"><div class="loading-spinner"></div> Calculando IPs disponibles...</td></tr>`;
+
+  try {
+    const data = await API.get('/dhcp/available-ips?limit=50');
+    State.availableIPs = data.available || [];
+    renderAvailableIPs();
+  } catch (err) {
+    if (tbody) tbody.innerHTML = `<tr><td colspan="3" class="empty-row">❌ ${err.message}</td></tr>`;
+    toast(`Error: ${err.message}`, 'error');
+  }
+}
+
+function renderAvailableIPs() {
+  const tbody = $('available-tbody');
+  if (!tbody) return;
+
+  const ips = State.availableIPs;
+  if (!ips.length) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-row">No hay IPs disponibles en el pool</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = ips.map((ip, i) => `
+    <tr>
+      <td class="td-id">${i + 1}</td>
+      <td><span class="ip-badge">${ip}</span></td>
+      <td>
+        <button class="btn btn-ghost btn-sm" onclick="quickReserve('${ip}')">+ Reservar esta IP</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function quickReserve(ip) {
+  openAddModal();
+  const ipInput = $('form-ip');
+  if (ipInput) {
+    ipInput.value = ip;
+    $('form-description').focus();
+  }
+}
+
+// ─── Modal: Add / Edit ─────────────────────────────────────────────────────────
+function openAddModal() {
+  State.editingId = null;
+  clearForm();
+  setText('modal-title', 'Nueva Reserva DHCP');
+  setText('modal-save-text', 'Guardar Reserva');
+  $('form-entry-id').value = '';
+  openModal('modal-overlay');
+  setTimeout(() => $('form-description').focus(), 100);
+}
+
+function openEditModal(entryId) {
+  const lease = State.leases.find((l) => l.id === entryId);
+  if (!lease) return;
+
+  State.editingId = entryId;
+  clearForm();
+
+  $('form-entry-id').value = entryId;
+  $('form-description').value = lease.description || '';
+  $('form-mac').value = lease.mac || '';
+  $('form-ip').value = lease.ip || '';
+
+  // Deshabilitar MAC en edición (no se puede cambiar la MAC, sólo IP y descripción)
+  $('form-mac').disabled = true;
+  $('form-mac').style.opacity = '.5';
+
+  setText('modal-title', `Editar Reserva #${entryId}`);
+  setText('modal-save-text', 'Guardar Cambios');
+  openModal('modal-overlay');
+  setTimeout(() => $('form-description').focus(), 100);
+}
+
+function clearForm() {
+  ['form-description', 'form-mac', 'form-ip'].forEach((id) => {
+    const el = $(id);
+    if (el) {
+      el.value = '';
+      el.classList.remove('error');
+      el.disabled = false;
+      el.style.opacity = '';
+    }
+  });
+  ['err-description', 'err-mac', 'err-ip'].forEach((id) => setText(id, ''));
+}
+
+// ─── Modal: Delete ─────────────────────────────────────────────────────────────
+function openDeleteModal(entryId) {
+  const lease = State.leases.find((l) => l.id === entryId);
+  if (!lease) return;
+
+  State.pendingDelete = entryId;
+  setText('delete-target-desc', lease.description || `ID ${entryId}`);
+  setText('delete-target-mac', lease.mac);
+  setText('delete-target-ip', lease.ip);
+  openModal('delete-overlay');
+}
+
+// ─── Suggest IP ────────────────────────────────────────────────────────────────
+async function suggestNextIP() {
+  try {
+    const data = await API.get('/dhcp/available-ips?limit=1');
+    const ip = data.available?.[0];
+    if (ip) {
+      $('form-ip').value = ip;
+      toast(`IP sugerida: ${ip}`, 'info', 2500);
+    } else {
+      toast('No hay IPs disponibles en el pool', 'warning');
+    }
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error');
+  }
+}
+
+// ─── Validation ────────────────────────────────────────────────────────────────
+function validateForm(isEdit = false) {
+  let valid = true;
+
+  const desc = $('form-description').value.trim();
+  if (!desc) {
+    setError('form-description', 'err-description', 'La descripción es obligatoria');
+    valid = false;
+  } else {
+    clearError('form-description', 'err-description');
+  }
+
+  if (!isEdit) {
+    const mac = $('form-mac').value.trim();
+    const macRe = /^([0-9a-fA-F]{2}[:\-]){5}([0-9a-fA-F]{2})$/;
+    if (!mac || !macRe.test(mac)) {
+      setError('form-mac', 'err-mac', 'Formato MAC inválido. Ej: AA:BB:CC:DD:EE:FF');
+      valid = false;
+    } else {
+      clearError('form-mac', 'err-mac');
+    }
+  }
+
+  const ip = $('form-ip').value.trim();
+  const ipRe = /^192\.168\.171\.(([1-9])|([1-9]\d)|(1\d{2})|(2[0-4]\d)|(25[0-4]))$/;
+  if (!ip || !ipRe.test(ip)) {
+    setError('form-ip', 'err-ip', 'IP debe estar en el rango 192.168.171.1 - 192.168.171.254');
+    valid = false;
+  } else {
+    clearError('form-ip', 'err-ip');
+  }
+
+  return valid;
+}
+
+function setError(inputId, errId, msg) {
+  const input = $(inputId);
+  if (input) input.classList.add('error');
+  setText(errId, msg);
+}
+
+function clearError(inputId, errId) {
+  const input = $(inputId);
+  if (input) input.classList.remove('error');
+  setText(errId, '');
+}
+
+// ─── Save (Create / Update) ────────────────────────────────────────────────────
+async function saveLease() {
+  const isEdit = !!State.editingId;
+
+  if (!validateForm(isEdit)) return;
+
+  const saveBtn = $('modal-save');
+  const saveText = $('modal-save-text');
+  const spinner = $('modal-spinner');
+
+  saveBtn.disabled = true;
+  saveText.textContent = 'Guardando...';
+  spinner.classList.remove('hidden');
+
+  try {
+    if (isEdit) {
+      await API.put(`/dhcp/reservations/${State.editingId}`, {
+        ip: $('form-ip').value.trim(),
+        description: $('form-description').value.trim(),
+      });
+      toast('✅ Reserva actualizada correctamente', 'success');
+    } else {
+      await API.post('/dhcp/reservations', {
+        mac: $('form-mac').value.trim(),
+        ip: $('form-ip').value.trim(),
+        description: $('form-description').value.trim(),
+      });
+      toast('✅ Nueva reserva creada correctamente', 'success');
+    }
+
+    closeModal('modal-overlay');
+    await Promise.all([loadLeases(), loadStats()]);
+    if (State.currentView === 'available') loadAvailableIPs();
+  } catch (err) {
+    toast(`❌ ${err.message}`, 'error', 6000);
+  } finally {
+    saveBtn.disabled = false;
+    saveText.textContent = isEdit ? 'Guardar Cambios' : 'Guardar Reserva';
+    spinner.classList.add('hidden');
+  }
+}
+
+// ─── Delete ────────────────────────────────────────────────────────────────────
+async function confirmDelete() {
+  if (!State.pendingDelete) return;
+
+  const btn = $('delete-confirm');
+  const txt = $('delete-confirm-text');
+  const spinner = $('delete-spinner');
+
+  btn.disabled = true;
+  txt.textContent = 'Eliminando...';
+  spinner.classList.remove('hidden');
+
+  try {
+    await API.del(`/dhcp/reservations/${State.pendingDelete}`);
+    toast('✅ Reserva eliminada', 'success');
+    closeModal('delete-overlay');
+    State.pendingDelete = null;
+    await Promise.all([loadLeases(), loadStats()]);
+    if (State.currentView === 'available') loadAvailableIPs();
+  } catch (err) {
+    toast(`❌ ${err.message}`, 'error', 6000);
+  } finally {
+    btn.disabled = false;
+    txt.textContent = 'Eliminar';
+    spinner.classList.add('hidden');
+  }
+}
+
+// ─── Logout ────────────────────────────────────────────────────────────────────
+async function logout() {
+  try {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
+  } catch (_) {}
+  window.location.href = '/login';
+}
+
+// ─── Export CSV ────────────────────────────────────────────────────────────────
+function exportCSV() {
+  const rows = [['ID', 'Descripción', 'MAC', 'IP Asignada']];
+  State.filteredLeases.forEach((l) => {
+    rows.push([l.id, `"${(l.description || '').replace(/"/g, '""')}"`, l.mac, l.ip]);
+  });
+
+  const csv = rows.map((r) => r.join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `dhcp-v170-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV exportado', 'success', 2500);
+}
+
+// ─── Refresh all ───────────────────────────────────────────────────────────────
+async function refreshAll() {
+  const btn = $('refresh-btn');
+  if (btn) {
+    btn.style.transform = 'rotate(360deg)';
+    btn.style.transition = 'transform .6s ease';
+    setTimeout(() => {
+      btn.style.transform = '';
+      btn.style.transition = '';
+    }, 700);
+  }
+
+  await Promise.all([loadFortiStatus(), loadLeases(), loadStats()]);
+  if (State.currentView === 'available') await loadAvailableIPs();
+  toast('Datos actualizados', 'info', 2000);
+}
+
+// ─── MAC auto-format on input ───────────────────────────────────────────────────
+function formatMacInput(e) {
+  let val = e.target.value.replace(/[^0-9a-fA-F:]/g, '');
+  // Auto-insert colons every 2 chars
+  val = val.replace(/:/g, '');
+  if (val.length > 12) val = val.slice(0, 12);
+  const parts = val.match(/.{1,2}/g) || [];
+  e.target.value = parts.join(':');
+}
+
+// ─── Utilities ─────────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ─── Event Listeners ──────────────────────────────────────────────────────────
+function initEvents() {
+  // Navigation
+  document.querySelectorAll('.nav-item').forEach((el) => {
+    el.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchView(el.dataset.view);
+    });
+  });
+
+  // Sidebar toggle (mobile)
+  $('menu-toggle')?.addEventListener('click', () => {
+    $('sidebar').classList.toggle('open');
+  });
+
+  // Close sidebar when clicking outside (mobile)
+  $('main')?.addEventListener('click', () => {
+    if (window.innerWidth <= 768) $('sidebar').classList.remove('open');
+  });
+
+  // Refresh
+  $('refresh-btn')?.addEventListener('click', refreshAll);
+
+  // Add buttons
+  $('add-lease-btn')?.addEventListener('click', openAddModal);
+  $('dash-add-btn')?.addEventListener('click', () => {
+    switchView('leases');
+    setTimeout(openAddModal, 150);
+  });
+
+  // Modal close
+  $('modal-close')?.addEventListener('click', () => closeModal('modal-overlay'));
+  $('modal-cancel')?.addEventListener('click', () => closeModal('modal-overlay'));
+  $('modal-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('modal-overlay')) closeModal('modal-overlay');
+  });
+
+  // Modal save
+  $('modal-save')?.addEventListener('click', saveLease);
+
+  // Keyboard: Enter submits form
+  $('lease-form')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.target.tagName === 'INPUT') saveLease();
+  });
+
+  // Delete modal
+  $('delete-close')?.addEventListener('click', () => closeModal('delete-overlay'));
+  $('delete-cancel')?.addEventListener('click', () => closeModal('delete-overlay'));
+  $('delete-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('delete-overlay')) closeModal('delete-overlay');
+  });
+  $('delete-confirm')?.addEventListener('click', confirmDelete);
+
+  // Search
+  $('search-input')?.addEventListener('input', (e) => {
+    clearTimeout(State.searchDebounce);
+    State.searchDebounce = setTimeout(() => handleSearch(e.target.value), 220);
+  });
+
+  $('search-clear')?.addEventListener('click', () => {
+    $('search-input').value = '';
+    handleSearch('');
+  });
+
+  // Sort columns
+  document.querySelectorAll('.th-sortable').forEach((th) => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (State.sort.col === col) {
+        State.sort.dir = State.sort.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        State.sort.col = col;
+        State.sort.dir = 'asc';
+      }
+
+      document.querySelectorAll('.th-sortable').forEach((t) => {
+        t.classList.remove('asc', 'desc');
+      });
+      th.classList.add(State.sort.dir);
+
+      applySort();
+      renderLeases();
+    });
+  });
+
+  // Export
+  $('export-csv-btn')?.addEventListener('click', exportCSV);
+
+  // Suggest IP
+  $('suggest-ip-btn')?.addEventListener('click', suggestNextIP);
+
+  // Reload available
+  $('reload-available-btn')?.addEventListener('click', loadAvailableIPs);
+
+  // Logout
+  $('logout-btn')?.addEventListener('click', logout);
+
+  // MAC formatting
+  $('form-mac')?.addEventListener('input', formatMacInput);
+
+  // Keyboard: Escape closes modals
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      closeModal('modal-overlay');
+      closeModal('delete-overlay');
+    }
+  });
+}
+
+// ─── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  initEvents();
+
+  // Load user info and parallel data
+  await loadUser();
+  await Promise.all([loadFortiStatus(), loadLeases(), loadStats()]);
+
+  // Auto-refresh every 60 seconds
+  setInterval(() => {
+    loadLeases();
+    loadStats();
+    loadFortiStatus();
+  }, 60_000);
+}
+
+document.addEventListener('DOMContentLoaded', init);

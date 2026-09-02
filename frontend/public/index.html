@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Gestor de arrendamientos DHCP V170 del FortiGate ELS — Interfaz V170 (192.168.171.x)">
+  <title>ELS WiFi — DHCP V170 Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- ─── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-icon">🛡️</div>
+        <div class="brand-text">
+          <span class="brand-name">ELS WiFi</span>
+          <span class="brand-sub">DHCP Manager</span>
+        </div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" data-view="dashboard" id="nav-dashboard">
+        <span class="nav-icon">📊</span>
+        <span>Dashboard</span>
+      </a>
+      <a href="#" class="nav-item" data-view="leases" id="nav-leases">
+        <span class="nav-icon">📋</span>
+        <span>Arrendamientos</span>
+        <span class="nav-badge" id="leases-count">—</span>
+      </a>
+      <a href="#" class="nav-item" data-view="available" id="nav-available">
+        <span class="nav-icon">🌐</span>
+        <span>IPs Disponibles</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card" id="user-card">
+        <img class="user-avatar" id="user-avatar" src="" alt="">
+        <div class="user-info">
+          <span class="user-name" id="user-name">Cargando...</span>
+          <span class="user-email" id="user-email"></span>
+        </div>
+        <button class="logout-btn" id="logout-btn" title="Cerrar sesión">⏏</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ─── Main ──────────────────────────────────────────────────────────────── -->
+  <main class="main" id="main">
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="menu-toggle" id="menu-toggle" aria-label="Toggle sidebar">☰</button>
+        <div class="breadcrumb" id="breadcrumb">Dashboard</div>
+      </div>
+      <div class="topbar-right">
+        <div class="fortigate-status" id="fortigate-status">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-text">Verificando...</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" id="refresh-btn" title="Actualizar datos">↻</button>
+      </div>
+    </header>
+
+    <!-- ─── View: Dashboard ─────────────────────────────────────────────────── -->
+    <section class="view active" id="view-dashboard">
+      <div class="page-header">
+        <h1>Dashboard</h1>
+        <p class="page-sub">Estado del FortiGate y pool DHCP V170</p>
+      </div>
+
+      <!-- FortiGate info -->
+      <div class="cards-grid cards-grid-2" id="fortigate-info-cards">
+        <div class="card card-glow" id="card-device">
+          <div class="card-header">
+            <span class="card-icon">🖥️</span>
+            <span class="card-title">Dispositivo</span>
+          </div>
+          <div class="card-body">
+            <div class="info-row"><span class="info-label">Modelo</span><span class="info-value mono" id="info-model">—</span></div>
+            <div class="info-row"><span class="info-label">Firmware</span><span class="info-value mono" id="info-firmware">—</span></div>
+            <div class="info-row"><span class="info-label">Host</span><span class="info-value mono" id="info-host">—</span></div>
+            <div class="info-row"><span class="info-label">Hostname</span><span class="info-value mono" id="info-hostname">—</span></div>
+          </div>
+        </div>
+        <div class="card card-glow" id="card-dhcp">
+          <div class="card-header">
+            <span class="card-icon">📡</span>
+            <span class="card-title">Pool DHCP V170</span>
+          </div>
+          <div class="card-body">
+            <div class="info-row"><span class="info-label">DHCP ID</span><span class="info-value mono" id="info-dhcp-id">—</span></div>
+            <div class="info-row"><span class="info-label">Rango</span><span class="info-value mono" id="info-range">—</span></div>
+            <div class="info-row"><span class="info-label">Total</span><span class="info-value mono" id="info-total">—</span></div>
+            <div class="info-row"><span class="info-label">Disponibles</span><span class="info-value mono" id="info-available">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats -->
+      <div class="cards-grid cards-grid-3 mt-6">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-reserved">—</div>
+          <div class="stat-label">Reservas activas</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-free">—</div>
+          <div class="stat-label">IPs libres</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value stat-pct" id="stat-util">—</div>
+          <div class="stat-label">Utilización</div>
+        </div>
+      </div>
+
+      <!-- Utilization bar -->
+      <div class="card mt-6" id="util-card">
+        <div class="card-header">
+          <span class="card-icon">📈</span>
+          <span class="card-title">Utilización del Pool</span>
+        </div>
+        <div class="card-body">
+          <div class="progress-bar-wrap">
+            <div class="progress-bar" id="progress-bar" style="width:0%"></div>
+          </div>
+          <div class="progress-labels">
+            <span id="prog-used">0 reservadas</span>
+            <span id="prog-total">0 total</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recent -->
+      <div class="card mt-6">
+        <div class="card-header">
+          <span class="card-icon">🕐</span>
+          <span class="card-title">Últimas reservas</span>
+          <button class="btn btn-primary btn-sm ml-auto" id="dash-add-btn">+ Nueva reserva</button>
+        </div>
+        <div class="card-body p-0">
+          <table class="table" id="recent-table">
+            <thead>
+              <tr>
+                <th>Descripción</th>
+                <th>MAC</th>
+                <th>IP Asignada</th>
+              </tr>
+            </thead>
+            <tbody id="recent-tbody">
+              <tr><td colspan="3" class="empty-row">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── View: Arrendamientos ────────────────────────────────────────────── -->
+    <section class="view" id="view-leases">
+      <div class="page-header">
+        <div>
+          <h1>Arrendamientos DHCP</h1>
+          <p class="page-sub">Reservas IP estáticas de la interfaz V170 (192.168.171.x)</p>
+        </div>
+        <button class="btn btn-primary" id="add-lease-btn">+ Nueva Reserva</button>
+      </div>
+
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input
+            type="text"
+            class="search-input"
+            id="search-input"
+            placeholder="Buscar por MAC, IP o descripción..."
+            autocomplete="off"
+          >
+          <button class="search-clear" id="search-clear" title="Limpiar">✕</button>
+        </div>
+        <div class="toolbar-actions">
+          <button class="btn btn-ghost btn-sm" id="export-csv-btn" title="Exportar CSV">⬇ CSV</button>
+          <span class="record-count" id="record-count">— registros</span>
+        </div>
+      </div>
+
+      <!-- Table -->
+      <div class="card p-0">
+        <div class="table-wrap">
+          <table class="table" id="leases-table">
+            <thead>
+              <tr>
+                <th class="th-sortable" data-col="id"># <span class="sort-icon">↕</span></th>
+                <th class="th-sortable" data-col="description">Descripción <span class="sort-icon">↕</span></th>
+                <th>MAC</th>
+                <th class="th-sortable" data-col="ip">IP Asignada <span class="sort-icon">↕</span></th>
+                <th class="th-actions">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="leases-tbody">
+              <tr><td colspan="5" class="empty-row"><div class="loading-spinner"></div> Cargando arrendamientos...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── View: IPs Disponibles ───────────────────────────────────────────── -->
+    <section class="view" id="view-available">
+      <div class="page-header">
+        <div>
+          <h1>IPs Disponibles</h1>
+          <p class="page-sub">Primeras direcciones libres en el pool V170</p>
+        </div>
+        <button class="btn btn-ghost" id="reload-available-btn">↻ Actualizar</button>
+      </div>
+
+      <div class="card p-0">
+        <div class="table-wrap">
+          <table class="table" id="available-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Dirección IP</th>
+                <th>Acción rápida</th>
+              </tr>
+            </thead>
+            <tbody id="available-tbody">
+              <tr><td colspan="3" class="empty-row">Cargando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ─── Modal: Nueva / Editar Reserva ──────────────────────────────────── -->
+  <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal" id="modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="modal-title">Nueva Reserva DHCP</h2>
+        <button class="modal-close" id="modal-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="lease-form" novalidate>
+          <input type="hidden" id="form-entry-id" value="">
+
+          <div class="form-group">
+            <label class="form-label" for="form-description">Descripción <span class="form-required">*</span></label>
+            <input
+              type="text"
+              class="form-input"
+              id="form-description"
+              placeholder="Ej: PC-SALA3-01, LAPTOP-JUANPEREZ"
+              autocomplete="off"
+              maxlength="80"
+            >
+            <span class="form-hint">Nombre identificatorio del dispositivo</span>
+            <span class="form-error" id="err-description"></span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="form-mac">Dirección MAC <span class="form-required">*</span></label>
+            <input
+              type="text"
+              class="form-input mono"
+              id="form-mac"
+              placeholder="AA:BB:CC:DD:EE:FF"
+              autocomplete="off"
+              maxlength="17"
+            >
+            <span class="form-hint">Separadores: : o - (se normalizan automáticamente)</span>
+            <span class="form-error" id="err-mac"></span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="form-ip">Dirección IP <span class="form-required">*</span></label>
+            <div class="input-with-badge">
+              <input
+                type="text"
+                class="form-input mono"
+                id="form-ip"
+                placeholder="192.168.171.X"
+                autocomplete="off"
+              >
+              <button type="button" class="btn btn-ghost btn-xs" id="suggest-ip-btn">Sugerir IP</button>
+            </div>
+            <span class="form-hint">Debe estar en el rango 192.168.171.1 - 192.168.171.254</span>
+            <span class="form-error" id="err-ip"></span>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modal-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="modal-save" type="button">
+          <span id="modal-save-text">Guardar Reserva</span>
+          <div class="btn-spinner hidden" id="modal-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Confirmar eliminación ──────────────────────────────────── -->
+  <div class="modal-overlay" id="delete-overlay" role="dialog" aria-modal="true">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">⚠️ Confirmar eliminación</h2>
+        <button class="modal-close" id="delete-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>¿Eliminar la reserva de <strong id="delete-target-desc"></strong>?</p>
+        <div class="delete-details">
+          <div class="info-row"><span class="info-label">MAC</span><span class="info-value mono" id="delete-target-mac"></span></div>
+          <div class="info-row"><span class="info-label">IP</span><span class="info-value mono" id="delete-target-ip"></span></div>
+        </div>
+        <p class="delete-warning">Esta acción no se puede deshacer.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="delete-cancel">Cancelar</button>
+        <button class="btn btn-danger" id="delete-confirm">
+          <span id="delete-confirm-text">Eliminar</span>
+          <div class="btn-spinner hidden" id="delete-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Toast notifications ───────────────────────────────────────────── -->
+  <div class="toast-container" id="toast-container" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

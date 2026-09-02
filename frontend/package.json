@@ -1,0 +1,37 @@
+{
+  "name": "els-wifi",
+  "version": "2.0.0",
+  "description": "Gestor de WiFi y DHCP V170 para ELS — OAuth2 + FastAPI",
+  "main": "server.js",
+  "scripts": {
+    "start": "concurrently --names \"API,WEB\" --prefix-colors \"cyan,green\" \"uvicorn backend.main:app --host 127.0.0.1 --port 8000 --app-dir ..\" \"node start.js\"",
+    "dev":   "concurrently --names \"API,WEB\" --prefix-colors \"cyan,green\" \"uvicorn backend.main:app --host 127.0.0.1 --port 8000 --app-dir .. --reload\" \"nodemon start.js\"",
+    "backend": "uvicorn backend.main:app --host 127.0.0.1 --port 8000 --app-dir .. --reload",
+    "web":   "node start.js",
+    "server": "node server.js"
+  },
+  "keywords": ["fortigate", "dhcp", "network", "firewall", "oauth", "google"],
+  "author": "ELS IT",
+  "license": "MIT",
+  "dependencies": {
+    "connect-flash": "^0.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "express-session": "^1.18.2",
+    "express-validator": "^7.0.1",
+    "helmet": "^7.1.0",
+    "http-proxy-middleware": "^3.0.0",
+    "passport": "^0.6.0",
+    "passport-google-oauth20": "^2.0.0",
+    "socket.io": "^4.7.4",
+    "concurrently": "^8.2.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

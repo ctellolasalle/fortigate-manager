@@ -1,327 +1,419 @@
-# FortiGate Manager - Aplicacion Node.js
+# FortiGate DHCP V170 Manager
 
-Aplicacion web para gestionar objetos de direcciones y grupos en firewalls FortiGate mediante conexion SSH.
+Aplicación web para gestionar **arrendamientos DHCP estáticos** (reservas MAC → IP) en la interfaz **V170** (`192.168.171.x`) del firewall FortiGate, usando la **API REST de FortiOS** con autenticación Bearer Token y login **OAuth 2.0 con Google Workspace**.
 
-## Caracteristicas
+---
 
-- **Auto-conexion SSH** usando configuracion desde archivo `.env` al iniciar
-- **Verificaciones automaticas** del entorno antes de ejecutar 
-- **Gestion de objetos MAC** con prefijo ELS- automatico y validacion en tiempo real
-- **Administracion del grupo ELS-APP** con interfaz de transferencia de miembros
-- **Interfaz web moderna** con WebSocket para actualizaciones en tiempo real
-- **Diagnostico de conexion** integrado con pruebas de DNS, ping y puerto SSH
-- **Sistema de notificaciones** con diferentes tipos (exito, error, advertencia)
-- **Responsive design** para dispositivos moviles
-- **Estados de conexion** visuales (conectado, desconectado, conectando)
+## Arquitectura
 
-## Requisitos Previos
+```
+Navegador (SPA)
+     │  HTTP / WebSocket
+     ▼
+frontend/  → Express (Node.js :3000)
+     │  OAuth2 Google + Sesiones
+     │  Proxy /api/* → :8000
+     ▼
+backend/  → FastAPI (Python :8000)
+     │  Bearer Token — HTTPS verify=False
+     ▼
+FortiGate-200G  (192.168.99.99:8443)
+     API REST FortiOS v2
+```
 
-- Node.js >= 16.0.0
-- npm o yarn
-- Acceso SSH al FortiGate
-- Usuario con permisos de administracion en FortiGate
+---
 
-## Instalacion
+## Requisitos
 
-1. **Clonar el repositorio:**
+| Componente | Versión mínima |
+|---|---|
+| Node.js | >= 16.0.0 |
+| Python | >= 3.10 |
+| pip | >= 23.0 |
+
+No se requiere acceso SSH al FortiGate — se usa exclusivamente la **API REST** con token.
+
+---
+
+## Instalación
+
+### 1. Clonar el repositorio
+
 ```bash
 git clone https://github.com/ctellolasalle/fortigate-manager
 cd fortigate-manager
 ```
 
-2. **Instalar dependencias:**
+### 2. Instalar dependencias del backend Python
+
 ```bash
-npm install
+pip install -r backend/requirements.txt
 ```
 
-3. **Configurar variables de entorno:**
+### 3. Instalar dependencias del frontend Node.js
+
 ```bash
-cp .env.example .env
+cd frontend && npm install
 ```
 
-4. **Editar el archivo `.env`** con tus credenciales:
+O desde la raíz con el script incluido:
+
+```bash
+npm run install:frontend
+```
+
+### 4. Configurar el backend
+
+Editar `backend/.env`:
+
 ```env
-# Configuración del servidor  
+# API REST del FortiGate
+FGT_HOST=192.168.99.99
+FGT_PORT=8443
+FGT_TOKEN=tu_token_api_aqui
+
+# DHCP — Interfaz V170
+DHCP_SERVER_ID=24
+V170_START_IP=192.168.171.1
+V170_END_IP=192.168.171.254
+```
+
+> El token se genera en FortiGate: **System → Administrators → crear usuario API** con permisos de lectura/escritura sobre DHCP.
+
+### 5. Configurar el frontend
+
+Copiar la plantilla y editar `frontend/.env`:
+
+```bash
+cp frontend/.env.example frontend/.env
+```
+
+```env
+# Servidor
 PORT=3000
-HOST=0.0.0.0
+HOST=localhost
 NODE_ENV=development
 
-# Configuración de FortiGate
-FORTIGATE_HOST=192.168.0.1
-FORTIGATE_USERNAME=usuario
-FORTIGATE_PASSWORD=contraseña
-FORTIGATE_PORT=22
-FORTIGATE_TIMEOUT=20000
+# Google OAuth 2.0 — console.cloud.google.com
+GOOGLE_CLIENT_ID=xxxx.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxx
+GOOGLE_CALLBACK_URL=http://localhost:3000/auth/google/callback
+GOOGLE_WORKSPACE_DOMAIN=lasalle.edu.ar
 
-# Autenticación Google OAuth 2.0
-GOOGLE_CLIENT_ID=0000000000-xxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-_XXXXXXXXXXX_XXXXXXXXXXX
-GOOGLE_CALLBACK_URL=https://sudominio.com/auth/google/callback
-GOOGLE_WORKSPACE_DOMAIN=sudominio.com
+# Sesiones (genera con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))")
+SESSION_SECRET=clave-aleatoria-minimo-32-caracteres
 
-# Seguridad de sesiones
-SESSION_SECRET=genera-una-clave-aleatoria-de-64-caracteres-aqui
+# Usuarios autorizados (separados por coma, sin espacios)
+AUTHORIZED_EMAILS=usuario@dominio.com,otro@dominio.com
 
-# CONFIGURACIÓN DE PROXY - AGREGAR ESTAS LÍNEAS
-TRUST_PROXY=true
-BEHIND_PROXY=true
+# Admins (subconjunto de AUTHORIZED_EMAILS)
+ADMIN_EMAILS=admin@dominio.com
 
-# CONFIGURACIÓN DE SESIÓN MEJORADA - AGREGAR ESTAS LÍNEAS  
-SESSION_NAME=fortigate_session
-SESSION_MAX_AGE=86400000
-SESSION_SECURE=false
+# URL del backend Python
+PYTHON_API_URL=http://127.0.0.1:8000
 ```
+
+---
 
 ## Uso
 
-### Iniciar la aplicacion
+### Iniciar ambos servicios (recomendado)
 
-**Metodo recomendado (con verificaciones):**
+Desde la **raíz del proyecto**:
+
 ```bash
+# Producción
 npm start
-```
 
-**Para desarrollo con auto-reinicio:**
-```bash
+# Desarrollo con auto-reinicio
 npm run dev
 ```
 
-**Ejecutar servidor directamente (sin verificaciones):**
+### Iniciar por separado
+
 ```bash
-npm run server
+# Solo backend Python (FastAPI en :8000)
+npm run backend
+
+# Solo frontend Node.js (Express en :3000)
+npm run frontend
 ```
 
-La aplicacion estara disponible en `http://localhost:3000`
+### Desde la carpeta frontend
 
-## Despliegue Automático en Contenedor LXC (Proxmox)
+```bash
+cd frontend
 
-Para una instalación rápida y automatizada en un contenedor LXC (Ubuntu/Debian), puedes usar el script `install.sh` incluido en el proyecto.
+npm run dev      # ambos servicios
+npm run web      # solo Node.js
+npm run backend  # solo Python
+npm run server   # solo server.js sin verificaciones
+```
 
-### Instrucciones
+La aplicación estará disponible en `http://localhost:3000`
 
-1.  **Crea un contenedor LXC** en Proxmox (se recomienda una plantilla de **Ubuntu 24.04** o **Debian 11/12**).
-2.  **Transfiere la carpeta completa del proyecto** a tu contenedor LXC (por ejemplo, a `/opt/FortiGateManager`).
-3.  **Navega al directorio del proyecto y ejecuta el script** con privilegios de superusuario:
+---
 
-    ```bash
-    # Navega a la carpeta del proyecto
-    cd /root/fortigate-manager
+## Despliegue en Contenedor LXC (Proxmox)
 
-    # Da permisos de ejecución al script
-    chmod +x scripts/install.sh
+Para una instalación rápida y automatizada en un contenedor LXC (Ubuntu 22.04/24.04 o Debian 11/12) en Proxmox:
 
-    # Ejecuta el instalador
-    sudo ./scripts/install.sh
-    ```
+### 1. Preparar el contenedor
+1. Crea un contenedor LXC (plantilla Ubuntu o Debian recomendada).
+2. Transfiere esta carpeta completa del proyecto al contenedor (ej. `/opt/fortigate-manager`).
 
-El script se encargará del resto: instalará las dependencias del sistema, las dependencias de Node.js, te pedirá que configures las variables de entorno y finalmente configurará la aplicación como un servicio `systemd` para que se inicie automáticamente.
+### 2. Ejecutar instalador
+Navega a la carpeta del proyecto y ejecuta el script con `sudo`:
+
+```bash
+cd /opt/fortigate-manager
+chmod +x scripts/install.sh
+sudo ./scripts/install.sh
+```
+
+**El script automáticamente:**
+- Instala Node.js LTS, Python 3.10+ y `pip3`.
+- Instala todas las dependencias (`npm install` y `pip install`).
+- Crea las plantillas de `backend/.env` y `frontend/.env` (generando una clave segura para sesiones).
+- Crea **dos servicios systemd** (`fortigate-manager-api` y `fortigate-manager-web`) para arranque automático en el boot.
+
+### 3. Configurar credenciales y reiniciar
+El instalador creará archivos `.env` genéricos. Debes editarlos antes de iniciar:
+
+1. Editar credenciales FortiGate:
+   ```bash
+   nano backend/.env
+   ```
+2. Editar credenciales Google OAuth:
+   ```bash
+   nano frontend/.env
+   ```
+3. Iniciar los servicios:
+   ```bash
+   systemctl start fortigate-manager-api fortigate-manager-web
+   ```
+4. Ver logs si hay algún problema:
+   ```bash
+   journalctl -u fortigate-manager-api -u fortigate-manager-web -f
+   ```
+
+---
 
 ## Funcionalidades
 
-### 1. Gestion de Objetos MAC
+### Gestión de arrendamientos DHCP (V170)
 
-- **Crear objetos**: Interfaz intuitiva con campos MAC validados
-- **Auto-formato**: Los campos MAC se formatean automaticamente (XX:XX:XX:XX:XX:XX)
-- **Editar objetos**: Selecciona cualquier objeto de la tabla para editarlo
-- **Eliminar objetos**: Funcion de eliminacion con confirmacion
-- **Filtrado**: Filtra objetos por tipo (todos, MAC, subnet, FQDN, range)
-- **Prefijo automatico**: Todos los objetos se crean con prefijo "ELS-"
-- **Actualizacion en tiempo real**: Los cambios se reflejan inmediatamente via WebSocket
+- **Listar reservas**: Tabla completa con búsqueda por MAC, IP o descripción
+- **Crear reserva**: Asignar IP fija a una MAC con descripción (nombre del equipo)
+- **Editar reserva**: Modificar IP o descripción de una reserva existente
+- **Eliminar reserva**: Con confirmación antes de aplicar el cambio en el FortiGate
+- **IPs disponibles**: Vista de las primeras IPs libres del pool con acción rápida de reserva
+- **Exportar CSV**: Descargar la lista completa de reservas
+- **Auto-refresh**: Los datos se actualizan automáticamente cada 60 segundos
+- **Auto-formato MAC**: Los campos MAC se normalizan automáticamente a `XX:XX:XX:XX:XX:XX`
 
-### 2. Gestion de Grupos
+### Dashboard
 
-- **Grupo ELS-APP**: Administracion especifica del grupo de aplicaciones
-- **Transferencia de miembros**: Mueve objetos entre disponibles y miembros actuales
-- **Seleccion multiple**: Permite seleccionar varios objetos para transferir
-- **Ordenamiento automatico**: Las listas se ordenan alfabeticamente
-- **Sincronizacion**: Los cambios se sincronizan en tiempo real
+- **Estado del dispositivo**: Modelo, firmware y hostname del FortiGate en tiempo real
+- **Estadísticas del pool**: Total, reservadas con IP, solo MAC registrada, disponibles
+- **Barra de utilización**: Porcentaje de uso del pool V170
+- **Últimas reservas**: Vista rápida de las reservas recientes
 
-### 3. Conexion y Diagnostico  
+### Autenticación
 
-- **Auto-conexion**: Conecta automaticamente al iniciar usando configuracion `.env`
-- **Estados visuales**: Indicador de estado (conectado/desconectado/conectando)
-- **Reconexion manual**: Boton para reestablecer conexion cuando sea necesario
-- **Diagnostico completo**: Prueba DNS, ping y conectividad al puerto SSH
-- **Mensajes informativos**: Notificaciones detalladas sobre el estado de la conexion
+- **OAuth 2.0 con Google Workspace**: Login seguro sin gestionar contraseñas propias
+- **Lista de emails autorizados**: Configurable desde `.env` sin tocar código
+- **Sesiones persistentes**: 24 horas de duración, renovadas con cada request
+- **Restricción de dominio**: Opcional, via `GOOGLE_WORKSPACE_DOMAIN`
 
-### 4. Sistema de Notificaciones
-
-- **Tipos**: Exito (verde), Error (rojo), Advertencia (amarillo), Info (azul)  
-- **Auto-dismiss**: Las notificaciones se ocultan automaticamente despues de 5 segundos
-- **Click to dismiss**: Haz clic en cualquier notificacion para ocultarla
-- **Posicion fija**: Aparecen en la esquina superior derecha
+---
 
 ## Estructura del Proyecto
 
 ```
 fortigate-manager/
-├── lib/
-│   └── FortiGateManager.js    # Clase principal para conexion SSH
-├── public/
-│   ├── index.html             # Interfaz web principal
-│   ├── app.js                 # Logica del frontend y WebSocket
-│   └── styles.css             # Estilos CSS responsivos
+├── package.json              # Orquestador raíz (npm start / npm run dev)
+│
+├── backend/                  # API Python (FastAPI)
+│   ├── main.py               # Endpoints DHCP → FortiGate REST API
+│   ├── requirements.txt      # fastapi, uvicorn, httpx, python-dotenv
+│   └── .env                  # Token FortiGate + config DHCP ⚠️ no commitear
+│
+├── frontend/                 # Servidor Node.js + SPA
+│   ├── server.js             # Express: OAuth2, sesiones, proxy /api/*
+│   ├── start.js              # Verificaciones de entorno + arranque
+│   ├── package.json          # Dependencias Node.js
+│   ├── .env                  # OAuth Google + usuarios ⚠️ no commitear
+│   ├── .env.example          # Plantilla de configuración
+│   ├── lib/
+│   │   └── auth.js           # Passport + GoogleStrategy + middleware auth
+│   ├── routes/
+│   │   └── auth.js           # Rutas /auth/google, /callback, /logout, /status
+│   └── public/
+│       ├── index.html        # SPA — estructura HTML
+│       ├── app.js            # Lógica CRUD, búsqueda, sort, modales
+│       └── styles.css        # Diseño dark premium (Inter + JetBrains Mono)
+│
 ├── scripts/
-│   ├── install.sh             # Script de instalación automatizada
-│   └── fortigate-manager.service # Archivo de servicio para systemd
-├── start.js                   # Script de inicio con verificaciones
-├── server.js                  # Servidor Express con API REST
-├── package.json               # Configuracion del proyecto y dependencias
-├── .env.example              # Plantilla de configuracion
-└── README.md                 # Documentacion del proyecto
+│   ├── install.sh            # Instalador automatizado para LXC
+│   └── fortigate-manager.service  # Unit systemd
+│
+└── forti_fuck/               # Scripts Python de referencia (legado)
+    ├── backup_fortigate.py   # Backup de config via API REST
+    ├── fortigate_importer.py # Importador de MACs desde Excel (SSH/netmiko)
+    └── reserved-els-wifi.py  # Sincronizador de reservas DHCP (SSH/netmiko)
 ```
+
+---
 
 ## API Endpoints
 
-### Estado y Conexion
-- `GET /api/status` - Estado actual de la conexion SSH
-- `POST /api/reconnect` - Reconectar manualmente al FortiGate  
-- `GET /api/diagnose` - Ejecutar diagnostico completo de conexion
+Todos los endpoints `/api/*` requieren sesión autenticada (verificado por el proxy de Express).
 
-### Objetos ELS
-- `GET /api/els-objects` - Obtener todos los objetos ELS
-- `GET /api/els-objects?type=mac` - Filtrar objetos por tipo (mac, subnet, fqdn, range)
-- `POST /api/els-objects` - Crear o actualizar objeto ELS
-- `DELETE /api/els-objects/:name` - Eliminar objeto especifico
+### Sistema
 
-**Formato para crear objeto:**
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/health` | Estado del backend Python |
+| `GET` | `/api/system/status` | Modelo, firmware, hostname del FortiGate |
+
+### DHCP V170
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/dhcp/reservations` | Lista todas las reservas |
+| `GET` | `/api/dhcp/reservations?search=X` | Filtra por MAC, IP o descripción |
+| `POST` | `/api/dhcp/reservations` | Crear nueva reserva |
+| `PUT` | `/api/dhcp/reservations/{id}` | Editar IP o descripción |
+| `DELETE` | `/api/dhcp/reservations/{id}` | Eliminar reserva |
+| `GET` | `/api/dhcp/available-ips?limit=50` | IPs libres en el pool V170 |
+| `GET` | `/api/dhcp/stats` | Estadísticas del pool |
+
+**Crear reserva — body:**
 ```json
 {
-  "name": "DISPOSITIVO_EJEMPLO",
-  "type": "mac", 
-  "value": "aa:bb:cc:dd:ee:ff"
+  "mac": "AA:BB:CC:DD:EE:FF",
+  "ip": "192.168.171.10",
+  "description": "PC-SALA3-01"
 }
 ```
 
-### Grupos de Direcciones
-- `GET /api/address-groups` - Obtener grupos (especificamente ELS-APP)
-- `PUT /api/address-groups/ELS-APP` - Actualizar miembros del grupo ELS-APP
-
-**Formato para actualizar grupo:**
+**Editar reserva — body:**
 ```json
 {
-  "members": ["ELS-DISPOSITIVO1", "ELS-DISPOSITIVO2"]
+  "ip": "192.168.171.20",
+  "description": "LAPTOP-JUAN"
 }
 ```
 
-## Configuracion de Seguridad
+### Autenticación (Express)
 
-La aplicacion incluye las siguientes medidas de seguridad:
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/auth/google` | Iniciar flujo OAuth2 |
+| `GET` | `/auth/google/callback` | Callback de Google |
+| `POST` | `/auth/logout` | Cerrar sesión |
+| `GET` | `/auth/status` | Estado de la sesión actual |
 
-- **Helmet.js**: Headers de seguridad HTTP estandar
-- **Rate limiting**: Limitacion de requests por IP 
-- **CORS**: Configuracion de cross-origin requests
-- **Validacion de entrada**: Validacion con express-validator para todos los endpoints
-- **Variables de entorno**: Credenciales nunca hardcodeadas en el codigo
-- **Middleware de autorizacion**: Verificacion de conexion SSH antes de operaciones
+---
 
-## WebSocket Events
+## Seguridad
 
-La aplicacion utiliza WebSocket para actualizaciones en tiempo real:
+- **Helmet.js**: Headers HTTP de seguridad (CSP, HSTS, etc.)
+- **Rate limiting**: Límite de requests por IP en rutas de autenticación
+- **Sesiones HttpOnly**: Cookie segura, no accesible desde JavaScript
+- **Proxy autenticado**: Ningún endpoint `/api/*` es accesible sin sesión activa
+- **SSL deshabilitado solo para FortiGate**: El certificado auto-firmado del FortiGate es esperado; la conexión es interna de red
+- **Credenciales en `.env`**: Nunca hardcodeadas en el código fuente
+- **AUTHORIZED_EMAILS en `.env`**: Lista de acceso gestionable sin modificar código
 
-**Eventos del servidor:**
-- `connection_status` - Cambios en el estado de conexion SSH
-- `object_updated` - Notifica cuando un objeto es creado o actualizado
-- `object_deleted` - Notifica cuando un objeto es eliminado
-- `group_updated` - Notifica cuando el grupo ELS-APP es actualizado
+---
 
-**Estados de conexion:**
-- `connected: true/false` - Booleano del estado de conexion
-- `message: string` - Mensaje descriptivo del estado actual
+## Agregar o quitar usuarios autorizados
 
-## Variables de Entorno Requeridas
+Solo editar `frontend/.env`, sin tocar código:
 
 ```env
-# OBLIGATORIAS
-FORTIGATE_HOST=ip_del_fortigate
-FORTIGATE_USERNAME=usuario_ssh
-FORTIGATE_PASSWORD=password_ssh
+# Agregar nuevo usuario: añadir al final separado por coma
+AUTHORIZED_EMAILS=ctello@lasalle.edu.ar,...,nuevo@lasalle.edu.ar
 
-# OPCIONALES (con valores por defecto)
-PORT=3000
-HOST=localhost  
-FORTIGATE_PORT=22
-FORTIGATE_TIMEOUT=20000
-NODE_ENV=development
+# Para dar permisos de admin:
+ADMIN_EMAILS=ctello@lasalle.edu.ar,nuevo@lasalle.edu.ar
 ```
+
+Reiniciar el servidor frontend para que tome efecto.
+
+---
 
 ## Troubleshooting
 
-### Error de Variables de Entorno
-```
-❌ Error: Variables de entorno faltantes: FORTIGATE_HOST
-```
-**Solucion:** Verifica que el archivo `.env` existe y contiene todas las variables requeridas.
+### Backend Python no disponible
 
-### Error de Conexion SSH
 ```
-❌ Error: Conexion rechazada - Verifica IP y puerto
-```  
-**Solucion:** 
-1. Usar el diagnostico integrado (`/api/diagnose`)
-2. Verificar conectividad de red al FortiGate
-3. Confirmar que SSH este habilitado en el FortiGate
+❌ El servicio de API no está disponible. ¿Está corriendo el backend Python?
+```
 
-### Error de Autenticacion
-```
-❌ Error: Error de autenticacion - Usuario o contraseña incorrectos
-```
-**Solucion:**
-1. Verificar credenciales en archivo `.env`
-2. Confirmar que el usuario tiene permisos de administracion
-3. Probar login manual via SSH para validar credenciales
-
-### Error de Permisos
-```
-❌ Error: No hay conexion SSH activa al FortiGate
-```
-**Solucion:**
-1. Usar boton "Reconectar" en la interfaz
-2. Verificar estado de conexion en la parte superior
-3. Revisar logs del servidor para mas detalles
-
-## Comandos de Desarrollo
-
+**Solución:** Iniciar uvicorn manualmente:
 ```bash
-# Instalar dependencias
-npm install
-
-# Verificar entorno e iniciar
-npm start
-
-# Modo desarrollo con nodemon
-npm run dev
-
-# Solo servidor (sin verificaciones)
-npm run server
-
-# Verificar version de Node
-node --version
+npm run backend
+# o directamente:
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Tecnologias Utilizadas
+### Error de token FortiGate (401)
 
-- **Backend:** Node.js, Express.js, Socket.io
-- **Frontend:** HTML5, CSS3 (sin frameworks), JavaScript vanilla
-- **SSH:** node-ssh para conexiones seguras
-- **Seguridad:** Helmet, express-rate-limit, express-validator
-- **Utilidades:** dotenv, cors
+```
+Error: Token de API inválido o expirado
+```
+
+**Solución:** Verificar `FGT_TOKEN` en `backend/.env`. Regenerar el token en FortiGate: **System → Administrators → [usuario API] → Regenerate**.
+
+### DHCP Server ID incorrecto (404)
+
+```
+Error: DHCP Server ID 24 no encontrado
+```
+
+**Solución:** Verificar el ID correcto en FortiGate: **Network → DHCP Server** — el ID se muestra en la URL al editar el servidor.
+
+### Error de OAuth — acceso denegado
+
+```
+Acceso denegado. Solo usuarios autorizados pueden acceder.
+```
+
+**Solución:** Verificar que el email de la cuenta Google esté en `AUTHORIZED_EMAILS` del `frontend/.env`.
+
+### Variables de entorno faltantes
+
+```
+❌ Error: Variables de entorno faltantes: GOOGLE_CLIENT_ID
+```
+
+**Solución:** Revisar `frontend/.env`. Generar credenciales OAuth en [Google Cloud Console](https://console.cloud.google.com/apis/credentials).
+
+---
+
+## Tecnologías
+
+| Capa | Tecnología |
+|---|---|
+| Backend API | Python 3.10+, FastAPI, uvicorn, httpx |
+| Frontend servidor | Node.js, Express.js, Passport.js, Socket.io |
+| Frontend cliente | HTML5, CSS3 vanilla, JavaScript vanilla (SPA) |
+| Autenticación | OAuth 2.0 — passport-google-oauth20 |
+| Comunicación FortiGate | FortiOS REST API v2, Bearer Token |
+| Tipografía | Inter, JetBrains Mono (Google Fonts) |
+
+---
 
 ## Licencia
 
-Este proyecto esta bajo la Licencia MIT. 
-
-## Contribucion
-
-1. Fork el proyecto
-2. Crea una rama feature (`git checkout -b feature/nueva-funcionalidad`)  
-3. Commit tus cambios (`git commit -am 'Agregar nueva funcionalidad'`)
-4. Push a la rama (`git push origin feature/nueva-funcionalidad`)
-5. Crear un Pull Request
+MIT
 
 ## Soporte
 
-Para reportar bugs o solicitar nuevas funcionalidades:
-- Crear un issue en el repositorio del proyecto
-- Incluir logs relevantes y pasos para reproducir el problema
-- Especificar version de Node.js y sistema operativo
+Para reportar bugs o solicitar funcionalidades:
+- Crear un issue en el repositorio
+- Incluir logs del servidor y del backend Python
+- Especificar versiones de Node.js y Python
