@@ -130,11 +130,24 @@ async function loadUser() {
 
 function renderUser(user) {
   const avatar = $('user-avatar');
-  if (avatar && user.photo) {
-    avatar.src = user.photo;
-    avatar.alt = user.name || '';
+  const fallbackUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(user.name || user.email || 'U')}&background=1e3a8a&color=ffffff&bold=true`;
+
+  if (avatar) {
+    avatar.onerror = () => {
+      avatar.onerror = null;
+      avatar.src = fallbackUrl;
+    };
+
+    if (user.photo) {
+      avatar.src = user.photo;
+      avatar.alt = user.name || 'Usuario';
+    } else {
+      avatar.src = fallbackUrl;
+      avatar.alt = user.name || 'Usuario';
+    }
   }
-  setText('user-name', user.name || '');
+
+  setText('user-name', user.name || user.email?.split('@')[0] || 'Usuario');
   setText('user-email', user.email || '');
 }
 

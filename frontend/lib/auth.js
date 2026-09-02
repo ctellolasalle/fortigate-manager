@@ -33,17 +33,21 @@ class AuthManager {
     },
     async (accessToken, refreshToken, profile, done) => {
       try {
+        const photoUrl = (profile.photos && profile.photos.length > 0)
+          ? profile.photos[0].value
+          : null;
+
         const user = {
           id: profile.id,
           email: profile.emails[0].value,
           name: profile.displayName,
-          photo: profile.photos[0].value,
-          domain: profile._json.hd, // Dominio de Google Workspace
+          photo: photoUrl,
+          domain: profile._json ? profile._json.hd : null,
           provider: 'google',
           accessToken: accessToken
         };
 
-        console.log(`Intento de login: ${user.email} (dominio: ${user.domain})`);
+        console.log(`Intento de login: ${user.email} (foto: ${user.photo ? 'sí' : 'no'})`);
 
         // Verificar si el email esta en la lista autorizada
         if (!this.isAuthorizedEmail(user.email)) {
@@ -62,9 +66,6 @@ class AuthManager {
           });
         }
 
-        // Guardar usuario en cache temporal
-        this.userSessions.set(user.id, user);
-
         console.log(`✓ Acceso autorizado para: ${user.email}`);
         return done(null, user);
 
@@ -74,21 +75,14 @@ class AuthManager {
       }
     }));
 
-    // Serializar usuario para la sesion (solo guardar el ID)
+    // Serializar usuario directamente en la sesión de Express
     passport.serializeUser((user, done) => {
-      console.log(`Serializando usuario: ${user.email}`);
-      done(null, user.id);
+      done(null, user);
     });
 
-    // Deserializar usuario de la sesion
-    passport.deserializeUser((id, done) => {
-      const user = this.userSessions.get(id);
-      if (user) {
-        done(null, user);
-      } else {
-        console.log(`Usuario no encontrado en sesion: ${id}`);
-        done(null, false);
-      }
+    // Deserializar usuario de la sesión
+    passport.deserializeUser((user, done) => {
+      done(null, user);
     });
   }
 
