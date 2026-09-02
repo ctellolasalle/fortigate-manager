@@ -104,7 +104,7 @@ class DhcpReservation(BaseModel):
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: Optional[str]) -> str:
-        allowed = {"assign-ip", "block", "reserved"}
+        allowed = {"assign-ip", "reserved"}
         val = (v or "assign-ip").strip().lower()
         if val not in allowed:
             val = "assign-ip"
@@ -301,7 +301,7 @@ async def create_reservation(reservation: DhcpReservation):
         raise HTTPException(status_code=409, detail=f"La MAC {reservation.mac} ya tiene una regla configurada")
 
     target_ip = reservation.ip.strip() if reservation.ip else ""
-    if reservation.action in ("block", "assign-ip"):
+    if reservation.action == "assign-ip":
         target_ip = "0.0.0.0"
     elif reservation.action == "reserved":
         if not target_ip or target_ip == "0.0.0.0":
@@ -323,7 +323,7 @@ async def create_reservation(reservation: DhcpReservation):
 
     await _put_dhcp_server(server)
 
-    action_label = "bloqueada" if new_entry["action"] == "block" else ("asignada dinámica" if new_entry["action"] == "assign-ip" else f"reservada a {target_ip}")
+    action_label = "asignada dinámica (Pool)" if new_entry["action"] == "assign-ip" else f"reservada a {target_ip}"
     return {
         "success": True,
         "message": f"Regla creada: {reservation.mac} ({action_label})",
@@ -348,7 +348,7 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     if update.action is not None:
         target["action"] = update.action
-        if update.action in ("block", "assign-ip"):
+        if update.action == "assign-ip":
             target["ip"] = "0.0.0.0"
 
     current_action = target.get("action") or "assign-ip"

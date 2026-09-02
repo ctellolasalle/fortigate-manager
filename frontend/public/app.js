@@ -235,19 +235,14 @@ function renderLeases() {
 
   tbody.innerHTML = leases.map((l) => {
     const action = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign-ip');
-    let actionBadge = `<span class="badge-action badge-action-assign">Assign IP</span>`;
-    if (action === 'block') {
-      actionBadge = `<span class="badge-action badge-action-block">Block</span>`;
-    } else if (action === 'reserved') {
-      actionBadge = `<span class="badge-action badge-action-reserved">Reserve IP</span>`;
-    }
+    const isReserved = action === 'reserved';
+    const actionBadge = isReserved
+      ? `<span class="badge-action badge-action-reserved">Reserve IP</span>`
+      : `<span class="badge-action badge-action-assign">Assign IP</span>`;
 
-    let ipDisplay = l.ip || '<span style="color:var(--text-secondary);font-style:italic">—</span>';
-    if (action === 'block') {
-      ipDisplay = `<span style="color:var(--error-color, #ef4444);font-style:italic">Blocked</span>`;
-    } else if (action === 'assign-ip') {
-      ipDisplay = `<span style="color:var(--text-secondary);font-style:italic">Dynamic (Pool)</span>`;
-    }
+    const ipDisplay = (isReserved && l.ip && l.ip !== '0.0.0.0')
+      ? l.ip
+      : `<span style="color:var(--text-secondary);font-style:italic">Dynamic (Pool)</span>`;
 
     return `
       <tr>
@@ -395,14 +390,13 @@ function quickReserve(ip) {
 
 // ─── Modal Helpers: Action Segmented Control ──────────────────────────────
 function setActionType(actionVal) {
-  const a = actionVal || 'assign-ip';
+  const a = actionVal === 'reserved' ? 'reserved' : 'assign-ip';
   $('form-action').value = a;
   document.querySelectorAll('#action-selector .segment-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.actionType === a);
   });
 
   const ipGroup = $('ip-field-group');
-  const blockNotice = $('block-notice-box');
   const suggestBtn = $('suggest-ip-btn');
 
   clearError('form-ip', 'err-ip');
@@ -410,16 +404,10 @@ function setActionType(actionVal) {
   if (a === 'reserved') {
     // Modo Reserve IP: El textbox de IP ES VISIBLE Y OBLIGATORIO
     if (ipGroup) ipGroup.classList.remove('hidden');
-    if (blockNotice) blockNotice.classList.add('hidden');
     if (suggestBtn) suggestBtn.style.display = 'inline-flex';
-  } else if (a === 'block') {
-    // Modo Block: El textbox de IP SE OCULTA
-    if (ipGroup) ipGroup.classList.add('hidden');
-    if (blockNotice) blockNotice.classList.remove('hidden');
   } else {
     // Modo Assign IP: El textbox de IP SE OCULTA (asignación dinámica por pool)
     if (ipGroup) ipGroup.classList.add('hidden');
-    if (blockNotice) blockNotice.classList.add('hidden');
   }
 }
 
@@ -489,7 +477,7 @@ function openDeleteModal(entryId) {
   State.pendingDelete = entryId;
   setText('delete-target-desc', lease.description || `ID ${entryId}`);
   setText('delete-target-mac', lease.mac);
-  setText('delete-target-ip', lease.action === 'block' ? 'Bloqueado (sin IP)' : (lease.action === 'assign-ip' ? 'Asignación Dinámica' : (lease.ip || '—')));
+  setText('delete-target-ip', lease.action === 'reserved' ? (lease.ip || '—') : 'Asignación Dinámica (Pool)');
   openModal('delete-overlay');
 }
 

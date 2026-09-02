@@ -299,7 +299,6 @@
             <label class="form-label">Action type</label>
             <div class="segmented-control" id="action-selector">
               <button type="button" class="segment-btn active" data-action-type="assign-ip">Assign IP</button>
-              <button type="button" class="segment-btn" data-action-type="block">Block</button>
               <button type="button" class="segment-btn" data-action-type="reserved">Reserve IP</button>
             </div>
             <input type="hidden" id="form-action" value="assign-ip">
@@ -320,11 +319,6 @@
             </div>
             <span class="form-hint" id="ip-hint-text">Rango V170: 192.168.171.1 - 192.168.171.254</span>
             <span class="form-error" id="err-ip"></span>
-          </div>
-
-          <!-- Block notice box -->
-          <div class="notice-box notice-warning hidden" id="block-notice-box">
-            ⛔ <strong>Acción Bloqueo:</strong> El cliente con esta dirección MAC no recibirá ninguna dirección IP del servidor DHCP.
           </div>
         </form>
       </div>
