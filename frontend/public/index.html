@@ -39,6 +39,11 @@
         <span class="nav-icon">🌐</span>
         <span>IPs Disponibles</span>
       </a>
+      <a href="#" class="nav-item hidden" data-view="audit" id="nav-audit">
+        <span class="nav-icon">📜</span>
+        <span>Auditoría</span>
+        <span class="nav-badge nav-badge-admin">Admin</span>
+      </a>
     </nav>
 
     <div class="sidebar-footer">
@@ -238,6 +243,84 @@
             </thead>
             <tbody id="available-tbody">
               <tr><td colspan="3" class="empty-row"><div class="loading-spinner"></div> Calculando IPs disponibles...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── View: Auditoría (Solo Admin) ────────────────────────────────────── -->
+    <section class="view" id="view-audit">
+      <div class="page-header">
+        <div>
+          <h1>Registro de Auditoría</h1>
+          <p class="page-sub">Historial de accesos, altas, modificaciones y bajas del sistema (Exclusivo Administradores)</p>
+        </div>
+        <button class="btn btn-secondary btn-sm" id="audit-refresh-btn">↻ Actualizar Logs</button>
+      </div>
+
+      <!-- Filtros de Auditoría -->
+      <div class="card" style="margin-bottom: 1.25rem;">
+        <div class="audit-filters-grid">
+          <div class="form-group mb-0">
+            <label class="form-label" for="audit-filter-event">Tipo de Evento</label>
+            <select class="form-input" id="audit-filter-event">
+              <option value="ALL">Todos los eventos</option>
+              <option value="LOGIN">Inicio de Sesión (Login)</option>
+              <option value="LOGOUT">Cierre de Sesión (Logout)</option>
+              <option value="CREATE">Altas (Crear regla)</option>
+              <option value="UPDATE">Modificaciones (Editar regla)</option>
+              <option value="DELETE">Bajas (Eliminar regla)</option>
+              <option value="LOGIN_FAILED">Intentos Denegados</option>
+            </select>
+          </div>
+
+          <div class="form-group mb-0">
+            <label class="form-label" for="audit-filter-user">Persona / Usuario</label>
+            <select class="form-input" id="audit-filter-user">
+              <option value="">Todas las personas</option>
+            </select>
+          </div>
+
+          <div class="form-group mb-0">
+            <label class="form-label" for="audit-search-input">Búsqueda Rápida</label>
+            <div class="search-input-wrap">
+              <span class="search-icon">🔍</span>
+              <input
+                type="text"
+                class="form-input"
+                id="audit-search-input"
+                placeholder="Buscar por MAC, IP, descripción..."
+                autocomplete="off"
+              >
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de Auditoría -->
+      <div class="card p-0">
+        <div class="card-header" style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color, #e2e8f0);">
+          <div class="card-header-left">
+            <span class="card-icon">📜</span>
+            <span class="card-title">Movimientos Registrados</span>
+          </div>
+          <div class="card-badge" id="audit-count-badge">0 registros</div>
+        </div>
+        <div class="table-wrap">
+          <table class="table" id="audit-table">
+            <thead>
+              <tr>
+                <th style="min-width: 155px;">Fecha y Hora</th>
+                <th style="min-width: 200px;">Persona</th>
+                <th style="min-width: 130px;">Evento</th>
+                <th style="min-width: 170px;">Recurso (MAC / IP)</th>
+                <th>Detalle de la Operación</th>
+                <th style="min-width: 120px;">IP Origen</th>
+              </tr>
+            </thead>
+            <tbody id="audit-tbody">
+              <tr><td colspan="6" class="empty-row">Cargando registros de auditoría...</td></tr>
             </tbody>
           </table>
         </div>

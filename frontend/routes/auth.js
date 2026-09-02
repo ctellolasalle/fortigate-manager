@@ -1,6 +1,7 @@
 const express = require('express');
 const passport = require('passport');
 const router = express.Router();
+const { notifyAuditEvent } = require('../lib/auditNotifier');
 
 // Ruta para iniciar autenticacion con Google
 router.get('/google',
@@ -21,6 +22,17 @@ router.get('/google/callback',
     // Autenticacion exitosa
     const user = req.user;
     console.log(`✓ Usuario autenticado exitosamente: ${user.email}`);
+
+    // Registrar en auditoría
+    const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
+    notifyAuditEvent({
+      eventType: 'LOGIN',
+      userEmail: user.email,
+      userName: user.name,
+      actionStatus: 'SUCCESS',
+      description: 'Inicio de sesión exitoso con Google Workspace',
+      clientIp: clientIp,
+    });
     
     // Redirigir al dashboard principal
     res.redirect('/dashboard');
@@ -30,7 +42,9 @@ router.get('/google/callback',
 // Ruta de logout
 router.post('/logout', (req, res) => {
   const userEmail = req.user?.email || 'Usuario desconocido';
+  const userName = req.user?.name || '';
   const userId = req.user?.id;
+  const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
   
   req.logout((err) => {
     if (err) {
@@ -51,6 +65,16 @@ router.post('/logout', (req, res) => {
       if (userId && req.app.locals.authManager) {
         req.app.locals.authManager.clearUserSession(userId);
       }
+
+      // Registrar en auditoría
+      notifyAuditEvent({
+        eventType: 'LOGOUT',
+        userEmail: userEmail,
+        userName: userName,
+        actionStatus: 'SUCCESS',
+        description: 'Cierre de sesión manual del usuario',
+        clientIp: clientIp,
+      });
       
       console.log(`✓ Sesion cerrada para: ${userEmail}`);
       res.json({ 

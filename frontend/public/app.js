@@ -105,11 +105,16 @@ function switchView(name) {
     dashboard: 'Dashboard',
     leases: 'Arrendamientos DHCP',
     available: 'IPs Disponibles',
+    audit: 'Registro de Auditoría',
   };
   setText('breadcrumb', titles[name] || name);
 
   // Load data for view
   if (name === 'available') loadAvailableIPs();
+  if (name === 'audit') {
+    loadAuditUsers();
+    loadAuditLogs();
+  }
 }
 
 // ─── Auth / User ────────────────────────────────────────────────────────────────
@@ -149,6 +154,16 @@ function renderUser(user) {
 
   setText('user-name', user.name || user.email?.split('@')[0] || 'Usuario');
   setText('user-email', user.email || '');
+
+  // Pestaña de Auditoría: Solo visible para administradores
+  const navAudit = $('nav-audit');
+  if (navAudit) {
+    if (user.isAdmin) {
+      navAudit.classList.remove('hidden');
+    } else {
+      navAudit.classList.add('hidden');
+    }
+  }
 }
 
 // ─── FortiGate status ──────────────────────────────────────────────────────────
@@ -712,6 +727,173 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ─── Auditoría (Admin) ────────────────────────────────────────────────────────
+async function loadAuditUsers() {
+  const select = $('audit-filter-user');
+  if (!select) return;
+
+  try {
+    const res = await API.get('/audit/users');
+    const users = res.users || [];
+    const currentVal = select.value;
+    select.innerHTML = '<option value="">Todas las personas</option>' +
+      users.map((u) => {
+        const label = u.user_name ? `${u.user_name} (${u.user_email})` : u.user_email;
+        return `<option value="${escapeHtml(u.user_email)}">${escapeHtml(label)}</option>`;
+      }).join('');
+    if (currentVal) select.value = currentVal;
+  } catch (err) {
+    console.warn('Error cargando usuarios de auditoría:', err);
+  }
+}
+
+async function loadAuditLogs() {
+  const tbody = $('audit-tbody');
+  const countBadge = $('audit-count-badge');
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="6" class="empty-row"><div class="loading-spinner"></div> Cargando registros de auditoría...</td></tr>`;
+
+  const eventType = $('audit-filter-event')?.value || 'ALL';
+  const userEmail = $('audit-filter-user')?.value || '';
+  const search = $('audit-search-input')?.value.trim() || '';
+
+  const params = new URLSearchParams();
+  if (eventType && eventType !== 'ALL') params.append('event_type', eventType);
+  if (userEmail) params.append('user_email', userEmail);
+  if (search) params.append('search', search);
+  params.append('limit', '100');
+
+  try {
+    const res = await API.get(`/audit/logs?${params.toString()}`);
+    const logs = res.logs || [];
+    if (countBadge) countBadge.textContent = `${res.total || logs.length} registro${(res.total || logs.length) === 1 ? '' : 's'}`;
+    renderAuditLogs(logs);
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row" style="color:var(--error-color, #ef4444);">❌ Error cargando logs: ${escapeHtml(err.message)}</td></tr>`;
+    if (countBadge) countBadge.textContent = 'Error';
+  }
+}
+
+function renderAuditLogs(logs) {
+  const tbody = $('audit-tbody');
+  if (!tbody) return;
+
+  if (!logs || !logs.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No hay registros de auditoría para los filtros seleccionados</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = logs.map((log) => {
+    const badge = getAuditBadge(log.event_type, log.action_status);
+    const dateFormatted = formatAuditDate(log.timestamp);
+    const detailsHtml = formatAuditDetails(log);
+    const targetResource = (log.target_mac ? `<span class="mono">${log.target_mac}</span>` : '') +
+      (log.target_mac && log.target_ip ? '<br>' : '') +
+      (log.target_ip ? `<span class="mono" style="color:var(--text-secondary);">${log.target_ip}</span>` : (!log.target_mac ? '<span style="color:var(--text-secondary);font-style:italic">—</span>' : ''));
+
+    const userName = log.user_name || log.user_email?.split('@')[0] || 'Sistema';
+    const userEmail = log.user_email || 'sistema';
+
+    return `
+      <tr>
+        <td class="mono" style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">${dateFormatted}</td>
+        <td>
+          <div class="audit-user-cell">
+            <span class="audit-user-name">${escapeHtml(userName)}</span>
+            <span class="audit-user-email mono">${escapeHtml(userEmail)}</span>
+          </div>
+        </td>
+        <td>${badge}</td>
+        <td>${targetResource}</td>
+        <td>${detailsHtml}</td>
+        <td class="mono" style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(log.client_ip || '—')}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function getAuditBadge(eventType, status) {
+  if (status === 'FAILED' || eventType === 'LOGIN_FAILED') {
+    return `<span class="badge-event badge-event-failed">⛔ Intento Denegado</span>`;
+  }
+  switch (eventType) {
+    case 'LOGIN':
+      return `<span class="badge-event badge-event-login">🔑 Login</span>`;
+    case 'LOGOUT':
+      return `<span class="badge-event badge-event-logout">🚪 Logout</span>`;
+    case 'CREATE':
+      return `<span class="badge-event badge-event-create">➕ Alta Regla</span>`;
+    case 'UPDATE':
+      return `<span class="badge-event badge-event-update">✏️ Modificación</span>`;
+    case 'DELETE':
+      return `<span class="badge-event badge-event-delete">🗑️ Baja Regla</span>`;
+    default:
+      return `<span class="badge-event">${escapeHtml(eventType)}</span>`;
+  }
+}
+
+function formatAuditDate(isoStr) {
+  if (!isoStr) return '—';
+  try {
+    const d = new Date(isoStr);
+    return d.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  } catch {
+    return isoStr;
+  }
+}
+
+function formatAuditDetails(log) {
+  let text = escapeHtml(log.description || '');
+  const d = log.details;
+
+  if (log.event_type === 'UPDATE' && d?.previous && d?.updated) {
+    const diffs = [];
+    if (d.previous.action !== d.updated.action) {
+      diffs.push(`
+        <div class="audit-diff-row">
+          <span>Acción:</span>
+          <span class="audit-diff-old">${escapeHtml(d.previous.action)}</span>
+          <span class="audit-diff-arrow">➜</span>
+          <span class="audit-diff-new">${escapeHtml(d.updated.action)}</span>
+        </div>
+      `);
+    }
+    if (d.previous.ip !== d.updated.ip) {
+      diffs.push(`
+        <div class="audit-diff-row">
+          <span>IP:</span>
+          <span class="audit-diff-old mono">${escapeHtml(d.previous.ip || 'Dinámica')}</span>
+          <span class="audit-diff-arrow">➜</span>
+          <span class="audit-diff-new mono">${escapeHtml(d.updated.ip || 'Dinámica')}</span>
+        </div>
+      `);
+    }
+    if (d.previous.description !== d.updated.description) {
+      diffs.push(`
+        <div class="audit-diff-row">
+          <span>Desc:</span>
+          <span class="audit-diff-old">"${escapeHtml(d.previous.description || '—')}"</span>
+          <span class="audit-diff-arrow">➜</span>
+          <span class="audit-diff-new">"${escapeHtml(d.updated.description || '—')}"</span>
+        </div>
+      `);
+    }
+    if (diffs.length) {
+      return `<div class="audit-diff">${diffs.join('')}</div>`;
+    }
+  }
+
+  return text || '<span style="color:var(--text-secondary);font-style:italic">Operación registrada</span>';
+}
+
 // ─── Event Listeners ──────────────────────────────────────────────────────────
 function initEvents() {
   // Navigation
@@ -852,6 +1034,18 @@ function initEvents() {
   $('form-mac')?.addEventListener('paste', handleMacPaste);
   $('form-mac')?.addEventListener('blur', (e) => {
     e.target.value = normalizeMac(e.target.value);
+  });
+
+  // Auditoría (Admin)
+  $('audit-refresh-btn')?.addEventListener('click', () => {
+    loadAuditUsers();
+    loadAuditLogs();
+  });
+  $('audit-filter-event')?.addEventListener('change', loadAuditLogs);
+  $('audit-filter-user')?.addEventListener('change', loadAuditLogs);
+  $('audit-search-input')?.addEventListener('input', () => {
+    clearTimeout(State.auditDebounce);
+    State.auditDebounce = setTimeout(loadAuditLogs, 250);
   });
 
   // Keyboard: Escape closes modals

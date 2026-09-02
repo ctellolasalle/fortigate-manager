@@ -34,3 +34,9 @@ Thumbs.db
 # Logs
 logs
 *.log
+
+# Bases de datos y almacenamiento local
+data/
+*.db
+*.sqlite
+*.sqlite3

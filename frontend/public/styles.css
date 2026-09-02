@@ -1603,3 +1603,121 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
 }
+
+/* ─── Auditoría (Admin) ─────────────────────────────────────────────────── */
+.nav-badge-admin {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  letter-spacing: 0.04em;
+}
+
+.audit-filters-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
+  padding: 1.25rem;
+}
+
+.mb-0 {
+  margin-bottom: 0 !important;
+}
+
+.badge-event {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.badge-event-login {
+  background: rgba(30, 58, 138, 0.1);
+  color: #1e40af;
+  border: 1px solid rgba(30, 58, 138, 0.25);
+}
+
+.badge-event-logout {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.25);
+}
+
+.badge-event-create {
+  background: rgba(16, 185, 129, 0.1);
+  color: #059669;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.badge-event-update {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-event-delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #dc2626;
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.badge-event-failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #991b1b;
+  border: 1px dashed rgba(239, 68, 68, 0.4);
+}
+
+.audit-diff {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+}
+
+.audit-diff-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.audit-diff-old {
+  color: #dc2626;
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+
+.audit-diff-arrow {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
+.audit-diff-new {
+  color: #059669;
+  font-weight: 600;
+}
+
+.audit-user-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.audit-user-name {
+  font-weight: 600;
+  color: var(--text-color, #1e293b);
+  font-size: 0.85rem;
+}
+
+.audit-user-email {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #64748b);
+}

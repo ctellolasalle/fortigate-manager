@@ -6,14 +6,17 @@ Usa la API REST de FortiOS v2 con Bearer Token (igual que backup_fortigate.py)
 
 import ipaddress
 import os
+import urllib.parse
 from contextlib import asynccontextmanager
 from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
+
+from backend.audit import init_audit_db, log_event, get_audit_logs, get_audit_users
 
 load_dotenv()
 
@@ -40,9 +43,10 @@ http_client: httpx.AsyncClient = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Gestiona el ciclo de vida del cliente HTTP."""
+    """Gestiona el ciclo de vida del cliente HTTP y base de datos de auditoría."""
     global http_client
     http_client = httpx.AsyncClient(verify=False, timeout=30.0)
+    init_audit_db()
     print(f"[FortiGate API] Backend iniciado -> {FGT_BASE_URL}")
     print(f"[FortiGate API] DHCP Server ID: {DHCP_SERVER_ID} | Rango V170: {V170_START_IP} - {V170_END_IP}")
     yield
@@ -142,6 +146,32 @@ class DhcpReservationUpdate(BaseModel):
                     raise ValueError(f"Dirección IP inválida: {val}")
             return val or "0.0.0.0"
         return v
+
+
+class AuditEventIn(BaseModel):
+    event_type: str
+    user_email: Optional[str] = None
+    user_name: Optional[str] = None
+    action_status: str = "SUCCESS"
+    target_mac: Optional[str] = None
+    target_ip: Optional[str] = None
+    description: Optional[str] = None
+    details: Optional[dict] = None
+    client_ip: Optional[str] = None
+
+
+def _extract_actor(request: Request) -> dict:
+    email = request.headers.get("x-user-email", "").strip()
+    raw_name = request.headers.get("x-user-name", "").strip()
+    name = urllib.parse.unquote(raw_name) if raw_name else ""
+    client_ip = request.headers.get("x-user-ip", "").strip()
+    if not client_ip and request.client:
+        client_ip = request.client.host
+    return {
+        "email": email or "sistema",
+        "name": name or "",
+        "ip": client_ip or "",
+    }
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -344,10 +374,10 @@ async def get_reservations(
 
 
 @app.post("/dhcp/reservations", status_code=201)
-async def create_reservation(reservation: DhcpReservation):
+async def create_reservation(reservation: DhcpReservation, request: Request):
     """
-    Crea una nueva regla de asignación/reserva/bloqueo DHCP.
-    Soporta action (assign-ip, block, reserved), type (mac) y description.
+    Crea una nueva regla de asignación/reserva DHCP.
+    Soporta action (assign, reserved), type (mac) y description.
     """
     server = await _get_dhcp_server()
     entries: list = server.get("reserved-address", [])
@@ -381,6 +411,23 @@ async def create_reservation(reservation: DhcpReservation):
 
     await _save_reserved_addresses(entries)
 
+    actor = _extract_actor(request)
+    log_event(
+        event_type="CREATE",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=reservation.mac,
+        target_ip=target_ip or "Dinámica (Pool)",
+        description=reservation.description or "",
+        details={
+            "id": new_id,
+            "action": action,
+            "type": reservation.type or "mac",
+        },
+        client_ip=actor["ip"],
+    )
+
     action_label = "asignada dinámica (Pool)" if action == "assign" else f"reservada a {target_ip}"
     return {
         "success": True,
@@ -390,7 +437,7 @@ async def create_reservation(reservation: DhcpReservation):
 
 
 @app.put("/dhcp/reservations/{entry_id}")
-async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
+async def update_reservation(entry_id: int, update: DhcpReservationUpdate, request: Request):
     """
     Actualiza IP, descripción o acción de una regla existente.
     """
@@ -404,7 +451,11 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     used_ips = _get_used_ips(entries)
 
-    current_action = target.get("action") or "assign"
+    old_action = target.get("action") or "assign"
+    old_ip = target.get("ip") or ""
+    old_desc = target.get("description") or ""
+
+    current_action = old_action
     if current_action in ("assign", "assign-ip"):
         current_action = "assign"
 
@@ -431,7 +482,6 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
         target["type"] = update.type
 
     # Para garantizar que en FortiOS la IP estática no quede guardada si se cambia a 'assign':
-    # Si la regla pasa a 'assign', hacemos delete del registro previo y post del nuevo registro limpio
     item_url = f"{DHCP_URL}/reserved-address/{entry_id}"
     clean_item = {
         "id": target["id"],
@@ -443,6 +493,21 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     if new_action == "reserved" and target.get("ip"):
         clean_item["ip"] = target["ip"]
 
+    actor = _extract_actor(request)
+    audit_details = {
+        "id": entry_id,
+        "previous": {
+            "action": old_action,
+            "ip": old_ip or "Dinámica (Pool)",
+            "description": old_desc,
+        },
+        "updated": {
+            "action": new_action,
+            "ip": target.get("ip") or "Dinámica (Pool)",
+            "description": target.get("description", ""),
+        },
+    }
+
     if new_action == "assign":
         try:
             del_resp = await http_client.delete(item_url, headers=HEADERS)
@@ -450,6 +515,17 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
             post_resp = await http_client.post(f"{DHCP_URL}/reserved-address", headers=HEADERS, json=clean_item)
             print(f"[FortiGate API] Recrear entry {entry_id} como assign: {post_resp.status_code}")
             if post_resp.status_code in (200, 201):
+                log_event(
+                    event_type="UPDATE",
+                    user_email=actor["email"],
+                    user_name=actor["name"],
+                    action_status="SUCCESS",
+                    target_mac=target["mac"],
+                    target_ip="Dinámica (Pool)",
+                    description=target.get("description", ""),
+                    details=audit_details,
+                    client_ip=actor["ip"],
+                )
                 return {
                     "success": True,
                     "message": f"Regla ID {entry_id} actualizada a Assign IP (Dinámica)",
@@ -461,6 +537,18 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     # Fallback general con la subtabla completa limpia
     await _save_reserved_addresses(entries)
 
+    log_event(
+        event_type="UPDATE",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=target["mac"],
+        target_ip=target.get("ip") or "Dinámica (Pool)",
+        description=target.get("description", ""),
+        details=audit_details,
+        client_ip=actor["ip"],
+    )
+
     return {
         "success": True,
         "message": f"Regla ID {entry_id} actualizada",
@@ -469,7 +557,7 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
 
 @app.delete("/dhcp/reservations/{entry_id}")
-async def delete_reservation(entry_id: int):
+async def delete_reservation(entry_id: int, request: Request):
     """
     Elimina una reserva DHCP por su ID interno.
     """
@@ -482,13 +570,27 @@ async def delete_reservation(entry_id: int):
 
     mac = target.get("mac", "")
     ip = target.get("ip", "")
+    desc = target.get("description", "")
 
     entries = [e for e in entries if e.get("id") != entry_id]
     await _save_reserved_addresses(entries)
 
+    actor = _extract_actor(request)
+    log_event(
+        event_type="DELETE",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=mac,
+        target_ip=ip or "Dinámica (Pool)",
+        description=desc,
+        details={"id": entry_id},
+        client_ip=actor["ip"],
+    )
+
     return {
         "success": True,
-        "message": f"Reserva eliminada: {mac} → {ip}",
+        "message": f"Reserva eliminada: {mac} → {ip or 'Dynamic'}",
     }
 
 
@@ -552,3 +654,51 @@ async def get_dhcp_stats():
         "available": available,
         "utilization_pct": util_pct,
     }
+
+
+# ─── Endpoints de Auditoría ───────────────────────────────────────────────────
+
+@app.get("/audit/logs")
+async def fetch_audit_logs(
+    event_type: Optional[str] = Query(None),
+    user_email: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    """Retorna los logs de auditoría filtrados con paginación."""
+    return get_audit_logs(
+        event_type=event_type,
+        user_email=user_email,
+        search=search,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.get("/audit/users")
+async def fetch_audit_users():
+    """Retorna la lista de usuarios únicos registrados en la auditoría."""
+    return {"users": get_audit_users()}
+
+
+@app.post("/audit/event")
+async def record_audit_event(event: AuditEventIn, request: Request):
+    """Registra eventos de autenticación (login, logout, intentos fallidos) desde Node."""
+    actor = _extract_actor(request)
+    email = event.user_email or actor["email"]
+    name = event.user_name or actor["name"]
+    client_ip = event.client_ip or actor["ip"]
+
+    record_id = log_event(
+        event_type=event.event_type,
+        user_email=email,
+        user_name=name,
+        action_status=event.action_status,
+        target_mac=event.target_mac,
+        target_ip=event.target_ip,
+        description=event.description,
+        details=event.details,
+        client_ip=client_ip,
+    )
+    return {"success": True, "id": record_id}

@@ -123,6 +123,15 @@ app.use(
         requiresAuth: true,
       });
     }
+
+    // Proteger rutas de auditoría: Solo administradores pueden consultar /api/audit
+    if (req.originalUrl.startsWith('/api/audit') && !authManager.isAdmin(req.user.email)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Acceso denegado. Se requieren permisos de administrador para consultar auditoría.',
+      });
+    }
+
     next();
   },
   createProxyMiddleware({
@@ -131,7 +140,15 @@ app.use(
     // El proxy mantiene la ruta completa: /api/dhcp/reservations → /dhcp/reservations
     pathRewrite: { '^/api': '' },
     on: {
-      proxyReq: fixRequestBody,
+      proxyReq: (proxyReq, req) => {
+        fixRequestBody(proxyReq, req);
+        if (req.user) {
+          proxyReq.setHeader('x-user-email', req.user.email || '');
+          proxyReq.setHeader('x-user-name', encodeURIComponent(req.user.name || ''));
+          const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
+          proxyReq.setHeader('x-user-ip', clientIp);
+        }
+      },
       error: (err, req, res) => {
         console.error('[Proxy Error]', err.message);
         res.status(502).json({
