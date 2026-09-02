@@ -71,14 +71,15 @@ app.add_middleware(
 
 class DhcpReservation(BaseModel):
     mac: str
-    ip: str
+    ip: Optional[str] = ""
     description: Optional[str] = ""
+    type: Optional[str] = "mac"
+    action: Optional[str] = "assign-ip"  # "assign-ip", "block", "reserved"
 
     @field_validator("mac")
     @classmethod
     def validate_mac(cls, v: str) -> str:
         v = v.strip().lower()
-        # Normalizar separadores a dos puntos
         v = v.replace("-", ":").replace(".", ":")
         parts = v.split(":")
         if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
@@ -87,27 +88,43 @@ class DhcpReservation(BaseModel):
 
     @field_validator("ip")
     @classmethod
-    def validate_ip(cls, v: str) -> str:
+    def validate_ip(cls, v: Optional[str]) -> str:
+        val = (v or "").strip()
+        if not val or val == "0.0.0.0":
+            return val or "0.0.0.0"
         try:
-            ipaddress.IPv4Address(v.strip())
+            ipaddress.IPv4Address(val)
         except ValueError:
-            raise ValueError(f"Dirección IP inválida: {v}")
-        return v.strip()
+            raise ValueError(f"Dirección IP inválida: {val}")
+        return val
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: Optional[str]) -> str:
+        allowed = {"assign-ip", "block", "reserved"}
+        val = (v or "assign-ip").strip().lower()
+        if val not in allowed:
+            val = "assign-ip"
+        return val
 
 
 class DhcpReservationUpdate(BaseModel):
     ip: Optional[str] = None
     description: Optional[str] = None
+    action: Optional[str] = None
+    type: Optional[str] = None
 
     @field_validator("ip")
     @classmethod
     def validate_ip(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
-            try:
-                ipaddress.IPv4Address(v.strip())
-            except ValueError:
-                raise ValueError(f"Dirección IP inválida: {v}")
-            return v.strip()
+            val = v.strip()
+            if val and val != "0.0.0.0":
+                try:
+                    ipaddress.IPv4Address(val)
+                except ValueError:
+                    raise ValueError(f"Dirección IP inválida: {val}")
+            return val or "0.0.0.0"
         return v
 
 
@@ -136,7 +153,6 @@ async def _get_dhcp_server() -> dict:
 
 async def _put_dhcp_server(server_data: dict) -> dict:
     """Actualiza la configuración del servidor DHCP en FortiGate (PUT completo)."""
-    # FortiOS requiere el PUT con el objeto completo
     payload = {k: v for k, v in server_data.items() if k != "q_origin_key"}
 
     try:
@@ -156,15 +172,21 @@ def _normalize_reserved(entries: list) -> list:
     """Normaliza y ordena las reservas del DHCP."""
     result = []
     for e in entries:
+        action = e.get("action", "")
+        ip_val = e.get("ip", "")
+        if not action:
+            action = "block" if ip_val == "0.0.0.0" and e.get("type") == "mac" else "assign-ip"
+
         result.append({
             "id": e.get("id"),
             "mac": e.get("mac", ""),
-            "ip": e.get("ip", ""),
+            "ip": ip_val if ip_val != "0.0.0.0" else "",
             "description": e.get("description", ""),
-            "type": e.get("type", "reserved"),
+            "type": e.get("type", "mac"),
+            "action": action,
         })
-    # Ordenar por IP
-    result.sort(key=lambda x: ipaddress.IPv4Address(x["ip"]) if x["ip"] else ipaddress.IPv4Address("0.0.0.0"))
+    # Ordenar por IP o por ID si no tiene IP
+    result.sort(key=lambda x: (ipaddress.IPv4Address(x["ip"]) if x["ip"] else ipaddress.IPv4Address("0.0.0.0"), x.get("id") or 0))
     return result
 
 
@@ -259,8 +281,8 @@ async def get_reservations(
 @app.post("/dhcp/reservations", status_code=201)
 async def create_reservation(reservation: DhcpReservation):
     """
-    Crea una nueva reserva DHCP (MAC → IP fija).
-    Valida que la MAC e IP no estén ya en uso.
+    Crea una nueva regla de asignación/reserva/bloqueo DHCP.
+    Soporta action (assign-ip, block, reserved), type (mac) y description.
     """
     server = await _get_dhcp_server()
     entries: list = server.get("reserved-address", [])
@@ -269,35 +291,41 @@ async def create_reservation(reservation: DhcpReservation):
     used_ips = _get_used_ips(entries)
 
     if reservation.mac.lower() in used_macs:
-        raise HTTPException(status_code=409, detail=f"La MAC {reservation.mac} ya tiene una reserva")
-    if reservation.ip in used_ips:
-        raise HTTPException(status_code=409, detail=f"La IP {reservation.ip} ya está asignada")
+        raise HTTPException(status_code=409, detail=f"La MAC {reservation.mac} ya tiene una regla configurada")
+
+    target_ip = reservation.ip.strip() if reservation.ip else ""
+    if reservation.action == "block":
+        target_ip = "0.0.0.0"
+    elif target_ip and target_ip != "0.0.0.0":
+        if target_ip in used_ips:
+            raise HTTPException(status_code=409, detail=f"La IP {target_ip} ya está asignada")
 
     new_id = _next_entry_id(entries)
     new_entry = {
         "id": new_id,
         "mac": reservation.mac,
-        "ip": reservation.ip,
-        "description": reservation.description or "",
-        "type": "reserved",
-        "action": "reserved",
+        "ip": target_ip or "0.0.0.0",
+        "description": (reservation.description or "").strip()[:255],
+        "type": reservation.type or "mac",
+        "action": reservation.action or "assign-ip",
     }
     entries.append(new_entry)
     server["reserved-address"] = entries
 
     await _put_dhcp_server(server)
 
+    action_label = "bloqueada" if new_entry["action"] == "block" else f"asignada a {target_ip}"
     return {
         "success": True,
-        "message": f"Reserva creada: {reservation.mac} → {reservation.ip}",
-        "entry": {**new_entry},
+        "message": f"Regla creada: {reservation.mac} ({action_label})",
+        "entry": _normalize_reserved([new_entry])[0],
     }
 
 
 @app.put("/dhcp/reservations/{entry_id}")
 async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     """
-    Actualiza IP o descripción de una reserva existente (por ID interno DHCP).
+    Actualiza IP, descripción o acción de una regla existente.
     """
     server = await _get_dhcp_server()
     entries: list = server.get("reserved-address", [])
@@ -309,20 +337,29 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     used_ips = _get_used_ips(entries)
 
-    if update.ip is not None:
-        if update.ip in used_ips and update.ip != target.get("ip"):
-            raise HTTPException(status_code=409, detail=f"La IP {update.ip} ya está asignada")
-        target["ip"] = update.ip
+    if update.action is not None:
+        target["action"] = update.action
+        if update.action == "block":
+            target["ip"] = "0.0.0.0"
+
+    if update.ip is not None and target.get("action") != "block":
+        new_ip = update.ip.strip()
+        if new_ip and new_ip != "0.0.0.0" and new_ip in used_ips and new_ip != target.get("ip"):
+            raise HTTPException(status_code=409, detail=f"La IP {new_ip} ya está asignada")
+        target["ip"] = new_ip
 
     if update.description is not None:
-        target["description"] = update.description
+        target["description"] = update.description.strip()[:255]
+
+    if update.type is not None:
+        target["type"] = update.type
 
     server["reserved-address"] = entries
     await _put_dhcp_server(server)
 
     return {
         "success": True,
-        "message": f"Reserva ID {entry_id} actualizada",
+        "message": f"Regla ID {entry_id} actualizada",
         "entry": _normalize_reserved([target])[0],
     }
 

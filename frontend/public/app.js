@@ -233,18 +233,32 @@ function renderLeases() {
     return;
   }
 
-  tbody.innerHTML = leases.map((l) => `
-    <tr>
-      <td class="td-id">${l.id}</td>
-      <td class="td-desc">${escapeHtml(l.description) || '<span style="color:var(--muted-2);font-style:italic">Sin descripción</span>'}</td>
-      <td class="td-mac">${l.mac}</td>
-      <td class="td-ip">${l.ip}</td>
-      <td class="td-actions">
-        <button class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${l.id}" title="Editar">✏️</button>
-        <button class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${l.id}" title="Eliminar" style="color:var(--error-color, #ef4444)">🗑️</button>
-      </td>
-    </tr>
-  `).join('');
+    const action = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
+    let actionBadge = `<span class="badge-action badge-action-assign">Assign IP</span>`;
+    if (action === 'block') {
+      actionBadge = `<span class="badge-action badge-action-block">Block</span>`;
+    } else if (action === 'reserved') {
+      actionBadge = `<span class="badge-action badge-action-reserved">Reserve IP</span>`;
+    }
+
+    const ipDisplay = action === 'block'
+      ? `<span style="color:var(--text-secondary);font-style:italic">Blocked</span>`
+      : (l.ip || '<span style="color:var(--text-secondary);font-style:italic">—</span>');
+
+    return `
+      <tr>
+        <td class="td-id">${l.id}</td>
+        <td class="td-desc">${escapeHtml(l.description) || '<span style="color:var(--text-secondary);font-style:italic">Sin descripción</span>'}</td>
+        <td class="td-mac">${l.mac}</td>
+        <td>${actionBadge}</td>
+        <td class="td-ip">${ipDisplay}</td>
+        <td class="td-actions">
+          <button class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${l.id}" title="Editar">✏️</button>
+          <button class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${l.id}" title="Eliminar" style="color:var(--error-color, #ef4444)">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function renderRecentLeases(tbody) {
@@ -355,13 +369,47 @@ function quickReserve(ip) {
   }
 }
 
+// ─── Modal Helpers: Type & Action Segmented Controls ──────────────────────────
+function setType(typeVal) {
+  const t = typeVal || 'mac';
+  $('form-type').value = t;
+  document.querySelectorAll('#type-selector .segment-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.type === t);
+  });
+}
+
+function setActionType(actionVal) {
+  const a = actionVal || 'assign-ip';
+  $('form-action').value = a;
+  document.querySelectorAll('#action-selector .segment-btn').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.actionType === a);
+  });
+
+  const ipGroup = $('ip-field-group');
+  const blockNotice = $('block-notice-box');
+  const suggestBtn = $('suggest-ip-btn');
+
+  if (a === 'block') {
+    if (ipGroup) ipGroup.classList.add('hidden');
+    if (blockNotice) blockNotice.classList.remove('hidden');
+    clearError('form-ip', 'err-ip');
+  } else {
+    if (ipGroup) ipGroup.classList.remove('hidden');
+    if (blockNotice) blockNotice.classList.add('hidden');
+    if (suggestBtn) suggestBtn.style.display = 'inline-flex';
+  }
+}
+
 // ─── Modal: Add / Edit ─────────────────────────────────────────────────────────
 function openAddModal() {
   State.editingId = null;
   clearForm();
-  setText('modal-title', 'Nueva Reserva DHCP');
-  setText('modal-save-text', 'Guardar Reserva');
+  setText('modal-title', 'Create New IP Address Assignment Rule');
+  setText('modal-save-text', 'OK');
   $('form-entry-id').value = '';
+  setType('mac');
+  setActionType('assign-ip');
+  setText('desc-chars', '0');
   openModal('modal-overlay');
   setTimeout(() => $('form-description').focus(), 100);
 }
@@ -378,12 +426,17 @@ function openEditModal(entryId) {
   $('form-mac').value = lease.mac || '';
   $('form-ip').value = lease.ip || '';
 
-  // Deshabilitar MAC en edición (no se puede cambiar la MAC, sólo IP y descripción)
+  // Deshabilitar MAC en edición (no se cambia la MAC de una regla existente)
   $('form-mac').disabled = true;
-  $('form-mac').style.opacity = '.5';
+  $('form-mac').style.opacity = '.6';
 
-  setText('modal-title', `Editar Reserva #${entryId}`);
-  setText('modal-save-text', 'Guardar Cambios');
+  const action = lease.action || (lease.ip && lease.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
+  setType(lease.type || 'mac');
+  setActionType(action);
+  setText('desc-chars', (lease.description || '').length);
+
+  setText('modal-title', `Edit IP Address Assignment Rule #${entryId}`);
+  setText('modal-save-text', 'OK');
   openModal('modal-overlay');
   setTimeout(() => $('form-description').focus(), 100);
 }
@@ -399,6 +452,7 @@ function clearForm() {
     }
   });
   ['err-description', 'err-mac', 'err-ip'].forEach((id) => setText(id, ''));
+  setText('desc-chars', '0');
 }
 
 // ─── Modal: Delete ─────────────────────────────────────────────────────────────
@@ -409,7 +463,7 @@ function openDeleteModal(entryId) {
   State.pendingDelete = entryId;
   setText('delete-target-desc', lease.description || `ID ${entryId}`);
   setText('delete-target-mac', lease.mac);
-  setText('delete-target-ip', lease.ip);
+  setText('delete-target-ip', lease.action === 'block' ? 'Bloqueado (sin IP)' : (lease.ip || '—'));
   openModal('delete-overlay');
 }
 
@@ -432,14 +486,7 @@ async function suggestNextIP() {
 // ─── Validation ────────────────────────────────────────────────────────────────
 function validateForm(isEdit = false) {
   let valid = true;
-
-  const desc = $('form-description').value.trim();
-  if (!desc) {
-    setError('form-description', 'err-description', 'La descripción es obligatoria');
-    valid = false;
-  } else {
-    clearError('form-description', 'err-description');
-  }
+  const action = $('form-action').value || 'assign-ip';
 
   if (!isEdit) {
     const mac = $('form-mac').value.trim();
@@ -452,11 +499,16 @@ function validateForm(isEdit = false) {
     }
   }
 
-  const ip = $('form-ip').value.trim();
-  const ipRe = /^192\.168\.171\.(([1-9])|([1-9]\d)|(1\d{2})|(2[0-4]\d)|(25[0-4]))$/;
-  if (!ip || !ipRe.test(ip)) {
-    setError('form-ip', 'err-ip', 'IP debe estar en el rango 192.168.171.1 - 192.168.171.254');
-    valid = false;
+  // La IP sólo se exige y valida si NO es acción Block
+  if (action !== 'block') {
+    const ip = $('form-ip').value.trim();
+    const ipRe = /^192\.168\.171\.(([1-9])|([1-9]\d)|(1\d{2})|(2[0-4]\d)|(25[0-4]))$/;
+    if (!ip || !ipRe.test(ip)) {
+      setError('form-ip', 'err-ip', 'IP debe estar en el rango 192.168.171.1 - 192.168.171.254');
+      valid = false;
+    } else {
+      clearError('form-ip', 'err-ip');
+    }
   } else {
     clearError('form-ip', 'err-ip');
   }
@@ -490,20 +542,29 @@ async function saveLease() {
   saveText.textContent = 'Guardando...';
   spinner.classList.remove('hidden');
 
+  const action = $('form-action').value || 'assign-ip';
+  const type = $('form-type').value || 'mac';
+  const description = $('form-description').value.trim();
+  const ip = action === 'block' ? '0.0.0.0' : $('form-ip').value.trim();
+
   try {
     if (isEdit) {
       await API.put(`/dhcp/reservations/${State.editingId}`, {
-        ip: $('form-ip').value.trim(),
-        description: $('form-description').value.trim(),
+        ip,
+        description,
+        action,
+        type,
       });
-      toast('✅ Reserva actualizada correctamente', 'success');
+      toast('✅ Regla de asignación actualizada correctamente', 'success');
     } else {
       await API.post('/dhcp/reservations', {
         mac: $('form-mac').value.trim(),
-        ip: $('form-ip').value.trim(),
-        description: $('form-description').value.trim(),
+        ip,
+        description,
+        action,
+        type,
       });
-      toast('✅ Nueva reserva creada correctamente', 'success');
+      toast('✅ Nueva regla de asignación creada correctamente', 'success');
     }
 
     closeModal('modal-overlay');
@@ -513,7 +574,7 @@ async function saveLease() {
     toast(`❌ ${err.message}`, 'error', 6000);
   } finally {
     saveBtn.disabled = false;
-    saveText.textContent = isEdit ? 'Guardar Cambios' : 'Guardar Reserva';
+    saveText.textContent = 'OK';
     spinner.classList.add('hidden');
   }
 }
@@ -648,6 +709,22 @@ function initEvents() {
     if (!btn) return;
     const ip = btn.dataset.ip;
     if (ip) quickReserve(ip);
+  });
+
+  // Selectores segmentados (Type & Action Type estilo FortiGate)
+  $('type-selector')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.segment-btn');
+    if (btn && btn.dataset.type) setType(btn.dataset.type);
+  });
+
+  $('action-selector')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.segment-btn');
+    if (btn && btn.dataset.actionType) setActionType(btn.dataset.actionType);
+  });
+
+  // Contador de caracteres de Description en tiempo real (0/255)
+  $('form-description')?.addEventListener('input', (e) => {
+    setText('desc-chars', e.target.value.length);
   });
 
   // Add buttons
