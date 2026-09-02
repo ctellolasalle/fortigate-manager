@@ -78,8 +78,10 @@ fi
 
 # ─── 4. Dependencias Python (backend) ────────────────────────────────────────
 hdr "4. Instalando dependencias Python"
-pip3 install -q -r "${APP_DIR}/backend/requirements.txt"
-ok "Dependencias Python instaladas"
+python3 -m venv "${APP_DIR}/.venv"
+source "${APP_DIR}/.venv/bin/activate"
+pip install -q -r "${APP_DIR}/backend/requirements.txt"
+ok "Dependencias Python instaladas en entorno virtual"
 
 # ─── 5. Dependencias Node.js (frontend) ──────────────────────────────────────
 hdr "5. Instalando dependencias Node.js"
@@ -161,8 +163,7 @@ hdr "9. Configurando servicio systemd"
 
 PYTHON_BIN=$(command -v python3)
 NODE_BIN=$(command -v node)
-UVICORN_BIN=$(command -v uvicorn || pip3 show uvicorn 2>/dev/null | grep Location | awk '{print $2"/uvicorn"}')
-UVICORN_BIN=$(command -v uvicorn 2>/dev/null || echo "/usr/local/bin/uvicorn")
+UVICORN_BIN="${APP_DIR}/.venv/bin/uvicorn"
 
 cat > "$SERVICE_FILE" <<EOF
 [Unit]

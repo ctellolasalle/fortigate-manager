@@ -44,9 +44,16 @@ git clone https://github.com/ctellolasalle/fortigate-manager
 cd fortigate-manager
 ```
 
-### 2. Instalar dependencias del backend Python
+### 2. Configurar backend Python
+
+En sistemas modernos (Ubuntu 24.04 / Debian 12) es obligatorio usar entornos virtuales:
 
 ```bash
+# Crear entorno virtual
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Instalar dependencias
 pip install -r backend/requirements.txt
 ```
 
