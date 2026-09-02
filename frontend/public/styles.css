@@ -759,6 +759,14 @@ button {
   text-align: right;
 }
 
+/* Elementos exclusivos para vista de tarjetas en móvil */
+.cell-label-mobile,
+.mobile-action-text,
+.audit-mobile-label,
+.mobile-resource-sep {
+  display: none;
+}
+
 .td-mac {
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 0.85rem;
@@ -1461,29 +1469,296 @@ button {
     height: 38px;
   }
 
-  /* Tabla adaptada con scroll táctil */
+  /* ─── Transformación de Tablas a Tarjetas Táctiles en Móvil ─── */
+  .cell-label-mobile {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    margin-right: 0.4rem;
+  }
+
+  .mobile-action-text {
+    display: inline;
+    font-size: 0.85rem;
+    font-weight: 600;
+    margin-left: 0.4rem;
+  }
+
+  .audit-mobile-label {
+    display: inline-block;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-right: 0.35rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .mobile-resource-sep {
+    display: inline;
+    color: var(--text-secondary);
+  }
+
+  /* Eliminamos el scroll horizontal que corta la pantalla y mostramos tarjetas */
   .table-wrap {
-    -webkit-overflow-scrolling: touch;
-    border-radius: var(--radius-md);
+    overflow-x: visible;
+    padding: 0.25rem 0;
   }
 
-  .table th, .table td {
-    padding: 0.75rem 0.65rem;
-    font-size: 0.82rem;
+  .table,
+  .table tbody {
+    display: block;
+    width: 100%;
+    border-collapse: separate;
   }
 
-  .td-actions {
-    min-width: 85px;
+  .table thead {
+    display: none !important; /* Ocultar cabecera rígida de escritorio */
   }
 
-  .td-actions .btn {
-    width: 36px;
-    height: 36px;
+  /* ─── Tarjeta Móvil: Arrendamientos DHCP ─── */
+  .table tbody tr.lease-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.85rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    position: relative;
+  }
+
+  .lease-row:hover {
+    background-color: var(--surface-color);
+    border-color: var(--border-2);
+  }
+
+  .lease-row td {
     padding: 0;
+    border-bottom: none;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  /* Cabecera de la tarjeta: ID + Descripción y a la derecha el Badge */
+  .lease-row .td-id {
+    position: absolute;
+    top: 0.9rem;
+    left: 1rem;
+    width: auto;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 700;
+    background: #f1f5f9;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+  }
+
+  .lease-row .td-id .cell-label-mobile {
+    display: none;
+  }
+
+  .lease-row .td-desc {
+    margin-top: 1.85rem;
+    width: 100%;
+  }
+
+  .lease-row .desc-main {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    word-break: break-word;
+  }
+
+  .lease-row .td-action {
+    position: absolute;
+    top: 0.9rem;
+    right: 1rem;
+    width: auto;
+  }
+
+  .lease-row .td-mac,
+  .lease-row .td-ip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+    font-size: 0.88rem;
+    border: 1px solid #edf2f7;
+  }
+
+  .lease-row .mac-text {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--primary-color);
+  }
+
+  .lease-row .ip-text {
+    font-size: 0.92rem;
+    font-weight: 700;
+  }
+
+  /* Botones de acción inferiores: Anchos, táctiles y cómodos */
+  .lease-row .td-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 0.35rem;
+    padding-top: 0.75rem;
+    border-top: 1px dashed var(--border-color);
+    width: 100%;
+  }
+
+  .lease-row .td-actions .action-btn-edit,
+  .lease-row .td-actions .action-btn-del {
+    width: 100%;
+    height: 44px;
+    border-radius: var(--radius-md);
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
+    font-size: 0.92rem;
+    font-weight: 600;
+  }
+
+  .lease-row .td-actions .action-btn-edit {
+    background: rgba(30, 58, 138, 0.08);
+    color: var(--primary-color);
+    border: 1px solid rgba(30, 58, 138, 0.25);
+  }
+
+  .lease-row .td-actions .action-btn-del {
+    background: rgba(239, 68, 68, 0.08);
+    color: var(--error-color);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+  }
+
+  /* ─── Tarjeta Móvil: Auditoría ─── */
+  .table tbody tr.audit-row {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.1rem;
+    margin-bottom: 0.85rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    position: relative;
+  }
+
+  .audit-row td {
+    padding: 0;
+    border-bottom: none;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .audit-row .td-audit-date {
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .audit-row .td-audit-event {
+    margin-top: -0.15rem;
+  }
+
+  .audit-row .td-audit-user {
+    padding: 0.5rem 0.75rem;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+    border: 1px solid #edf2f7;
+  }
+
+  .audit-row .td-audit-resource {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    padding: 0.45rem 0.75rem;
+    background: #f8fafc;
+    border-radius: var(--radius-sm);
+    border: 1px solid #edf2f7;
+  }
+
+  .audit-row .audit-resource-content {
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .audit-row .td-audit-details {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    background: rgba(0, 0, 0, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    padding: 0.65rem 0.85rem;
+    font-size: 0.88rem;
+  }
+
+  .audit-row .td-audit-ip {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.78rem;
+    color: var(--text-secondary);
+    padding-top: 0.25rem;
+  }
+
+  /* ─── Tarjeta Móvil: IPs Disponibles ─── */
+  .table tbody tr.available-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 0.85rem 1rem;
+    margin-bottom: 0.65rem;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  }
+
+  .available-row td {
+    padding: 0;
+    border-bottom: none;
+  }
+
+  .available-row .td-avail-id {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .available-row .td-avail-ip .ip-badge {
+    font-size: 0.95rem;
+    padding: 0.35rem 0.75rem;
+  }
+
+  .available-row .btn-quick-reserve {
+    height: 40px;
+    padding: 0 0.95rem;
+    font-weight: 600;
+    background: rgba(30, 58, 138, 0.08);
+    color: var(--primary-color);
+    border: 1px solid rgba(30, 58, 138, 0.2);
+  }
+
+  /* Filtros de Auditoría en móvil */
+  .audit-filters-grid {
+    grid-template-columns: 1fr;
+    gap: 0.85rem;
+    padding: 0.85rem;
   }
 
   /* Modales en Móvil */

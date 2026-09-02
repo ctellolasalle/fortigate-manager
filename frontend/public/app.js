@@ -260,15 +260,29 @@ function renderLeases() {
       : `<span style="color:var(--text-secondary);font-style:italic">Dynamic (Pool)</span>`;
 
     return `
-      <tr>
-        <td class="td-id">${l.id}</td>
-        <td class="td-desc">${escapeHtml(l.description) || '<span style="color:var(--text-secondary);font-style:italic">Sin descripción</span>'}</td>
-        <td class="td-mac">${l.mac}</td>
-        <td>${actionBadge}</td>
-        <td class="td-ip">${ipDisplay}</td>
+      <tr class="lease-row" data-id="${l.id}">
+        <td class="td-id">
+          <span class="cell-label-mobile">#</span><span class="id-number">${l.id}</span>
+        </td>
+        <td class="td-desc">
+          <div class="desc-main">${escapeHtml(l.description) || '<span style="color:var(--text-secondary);font-style:italic">Sin descripción</span>'}</div>
+        </td>
+        <td class="td-mac">
+          <span class="cell-label-mobile">MAC</span>
+          <span class="mac-text mono">${l.mac}</span>
+        </td>
+        <td class="td-action">${actionBadge}</td>
+        <td class="td-ip">
+          <span class="cell-label-mobile">IP</span>
+          <span class="ip-text mono">${ipDisplay}</span>
+        </td>
         <td class="td-actions">
-          <button class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${l.id}" title="Editar">✏️</button>
-          <button class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${l.id}" title="Eliminar" style="color:var(--error-color, #ef4444)">🗑️</button>
+          <button class="btn btn-ghost btn-sm action-btn-edit" data-action="edit" data-id="${l.id}" title="Editar" aria-label="Editar">
+            <span>✏️</span><span class="mobile-action-text">Editar</span>
+          </button>
+          <button class="btn btn-ghost btn-sm action-btn-del" data-action="delete" data-id="${l.id}" title="Eliminar" aria-label="Eliminar" style="color:var(--error-color, #ef4444)">
+            <span>🗑️</span><span class="mobile-action-text">Eliminar</span>
+          </button>
         </td>
       </tr>
     `;
@@ -383,11 +397,13 @@ function renderAvailableIPs() {
   }
 
   tbody.innerHTML = ips.map((ip, i) => `
-    <tr>
-      <td class="td-id">${i + 1}</td>
-      <td><span class="ip-badge">${ip}</span></td>
-      <td>
-        <button class="btn btn-ghost btn-sm" data-action="reserve" data-ip="${ip}">+ Reservar esta IP</button>
+    <tr class="available-row">
+      <td class="td-id td-avail-id"><span class="cell-label-mobile">#</span>${i + 1}</td>
+      <td class="td-avail-ip"><span class="ip-badge mono">${ip}</span></td>
+      <td class="td-avail-action">
+        <button class="btn btn-ghost btn-sm btn-quick-reserve" data-action="reserve" data-ip="${ip}">
+          <span>+</span> Reservar IP
+        </button>
       </td>
     </tr>
   `).join('');
@@ -789,25 +805,36 @@ function renderAuditLogs(logs) {
     const dateFormatted = formatAuditDate(log.timestamp);
     const detailsHtml = formatAuditDetails(log);
     const targetResource = (log.target_mac ? `<span class="mono">${log.target_mac}</span>` : '') +
-      (log.target_mac && log.target_ip ? '<br>' : '') +
-      (log.target_ip ? `<span class="mono" style="color:var(--text-secondary);">${log.target_ip}</span>` : (!log.target_mac ? '<span style="color:var(--text-secondary);font-style:italic">—</span>' : ''));
+      (log.target_mac && log.target_ip ? '<span class="mobile-resource-sep"> · </span>' : '') +
+      (log.target_ip ? `<span class="mono audit-ip-sub">${log.target_ip}</span>` : (!log.target_mac ? '<span style="color:var(--text-secondary);font-style:italic">—</span>' : ''));
 
     const userName = log.user_name || log.user_email?.split('@')[0] || 'Sistema';
     const userEmail = log.user_email || 'sistema';
 
     return `
-      <tr>
-        <td class="mono" style="font-size:0.8rem;color:var(--text-secondary);white-space:nowrap;">${dateFormatted}</td>
-        <td>
+      <tr class="audit-row">
+        <td class="td-audit-date mono">
+          <span class="audit-mobile-date">${dateFormatted}</span>
+        </td>
+        <td class="td-audit-user">
           <div class="audit-user-cell">
             <span class="audit-user-name">${escapeHtml(userName)}</span>
             <span class="audit-user-email mono">${escapeHtml(userEmail)}</span>
           </div>
         </td>
-        <td>${badge}</td>
-        <td>${targetResource}</td>
-        <td>${detailsHtml}</td>
-        <td class="mono" style="font-size:0.8rem;color:var(--text-secondary);">${escapeHtml(log.client_ip || '—')}</td>
+        <td class="td-audit-event">${badge}</td>
+        <td class="td-audit-resource">
+          <span class="audit-mobile-label">Recurso: </span>
+          <div class="audit-resource-content">${targetResource}</div>
+        </td>
+        <td class="td-audit-details">
+          <span class="audit-mobile-label">Detalle: </span>
+          <div class="audit-details-content">${detailsHtml}</div>
+        </td>
+        <td class="td-audit-ip mono">
+          <span class="audit-mobile-label">IP Origen: </span>
+          <span class="audit-ip-val">${escapeHtml(log.client_ip || '—')}</span>
+        </td>
       </tr>
     `;
   }).join('');
