@@ -117,7 +117,7 @@ class AuthManager {
     }
     
     // Si es navegador, redirigir al login
-    res.redirect('/login?error=session_required');
+    res.redirect('/login');
   }
 
   // Middleware opcional para rutas que requieren admin
