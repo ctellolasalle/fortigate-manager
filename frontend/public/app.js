@@ -115,7 +115,8 @@ function switchView(name) {
 // ─── Auth / User ────────────────────────────────────────────────────────────────
 async function loadUser() {
   try {
-    const data = await API.get('/auth/status');
+    const res = await fetch('/auth/status', { credentials: 'same-origin' });
+    const data = await res.json();
     if (!data.authenticated) {
       window.location.href = '/login';
       return;
