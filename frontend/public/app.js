@@ -678,18 +678,27 @@ function initEvents() {
     el.addEventListener('click', (e) => {
       e.preventDefault();
       switchView(el.dataset.view);
+      // Auto-cerrar sidebar en pantallas táctiles/móviles
+      if (window.innerWidth <= 768) {
+        $('sidebar')?.classList.remove('open');
+        $('sidebar-backdrop')?.classList.remove('open');
+      }
     });
   });
 
   // Sidebar toggle (mobile)
-  $('menu-toggle')?.addEventListener('click', () => {
-    $('sidebar').classList.toggle('open');
-  });
+  const toggleSidebar = () => {
+    const isOpen = $('sidebar')?.classList.toggle('open');
+    $('sidebar-backdrop')?.classList.toggle('open', isOpen);
+  };
 
-  // Close sidebar when clicking outside (mobile)
-  $('main')?.addEventListener('click', () => {
-    if (window.innerWidth <= 768) $('sidebar').classList.remove('open');
-  });
+  const closeSidebar = () => {
+    $('sidebar')?.classList.remove('open');
+    $('sidebar-backdrop')?.classList.remove('open');
+  };
+
+  $('menu-toggle')?.addEventListener('click', toggleSidebar);
+  $('sidebar-backdrop')?.addEventListener('click', closeSidebar);
 
   // Refresh
   $('refresh-btn')?.addEventListener('click', refreshAll);
