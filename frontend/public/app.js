@@ -240,8 +240,8 @@ function renderLeases() {
       <td class="td-mac">${l.mac}</td>
       <td class="td-ip">${l.ip}</td>
       <td class="td-actions">
-        <button class="btn btn-ghost btn-icon btn-sm" onclick="openEditModal(${l.id})" title="Editar">✏️</button>
-        <button class="btn btn-ghost btn-icon btn-sm" onclick="openDeleteModal(${l.id})" title="Eliminar" style="color:var(--red)">🗑️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" data-action="edit" data-id="${l.id}" title="Editar">✏️</button>
+        <button class="btn btn-ghost btn-icon btn-sm" data-action="delete" data-id="${l.id}" title="Eliminar" style="color:var(--error-color, #ef4444)">🗑️</button>
       </td>
     </tr>
   `).join('');
@@ -340,7 +340,7 @@ function renderAvailableIPs() {
       <td class="td-id">${i + 1}</td>
       <td><span class="ip-badge">${ip}</span></td>
       <td>
-        <button class="btn btn-ghost btn-sm" onclick="quickReserve('${ip}')">+ Reservar esta IP</button>
+        <button class="btn btn-ghost btn-sm" data-action="reserve" data-ip="${ip}">+ Reservar esta IP</button>
       </td>
     </tr>
   `).join('');
@@ -632,6 +632,24 @@ function initEvents() {
   // Refresh
   $('refresh-btn')?.addEventListener('click', refreshAll);
 
+  // Delegación de eventos para la tabla de arrendamientos (evita violaciones de CSP)
+  $('leases-tbody')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action]');
+    if (!btn) return;
+    const action = btn.dataset.action;
+    const id = parseInt(btn.dataset.id, 10);
+    if (action === 'edit') openEditModal(id);
+    else if (action === 'delete') openDeleteModal(id);
+  });
+
+  // Delegación de eventos para la tabla de IPs disponibles
+  $('available-tbody')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-action="reserve"]');
+    if (!btn) return;
+    const ip = btn.dataset.ip;
+    if (ip) quickReserve(ip);
+  });
+
   // Add buttons
   $('add-lease-btn')?.addEventListener('click', openAddModal);
   $('dash-add-btn')?.addEventListener('click', () => {
@@ -733,5 +751,13 @@ async function init() {
     loadFortiStatus();
   }, 60_000);
 }
+
+// Exponer funciones necesarias para interacción en ventana global
+window.openEditModal = openEditModal;
+window.openDeleteModal = openDeleteModal;
+window.openAddModal = openAddModal;
+window.quickReserve = quickReserve;
+window.refreshAll = refreshAll;
+window.exportCSV = exportCSV;
 
 document.addEventListener('DOMContentLoaded', init);
