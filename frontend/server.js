@@ -141,12 +141,18 @@ app.use(
     pathRewrite: { '^/api': '' },
     on: {
       proxyReq: (proxyReq, req) => {
-        fixRequestBody(proxyReq, req);
-        if (req.user) {
-          proxyReq.setHeader('x-user-email', req.user.email || '');
-          proxyReq.setHeader('x-user-name', encodeURIComponent(req.user.name || ''));
-          const clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || req.ip || '';
-          proxyReq.setHeader('x-user-ip', clientIp);
+        try {
+          if (req.user) {
+            proxyReq.setHeader('x-user-email', req.user.email || '');
+            proxyReq.setHeader('x-user-name', encodeURIComponent(req.user.name || ''));
+            const clientIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || req.ip || '';
+            proxyReq.setHeader('x-user-ip', clientIp);
+          }
+          if (req.body && Object.keys(req.body).length > 0) {
+            fixRequestBody(proxyReq, req);
+          }
+        } catch (err) {
+          console.error('[Proxy proxyReq Error]', err.message);
         }
       },
       error: (err, req, res) => {
@@ -308,6 +314,14 @@ app.use('*', (req, res) => {
 app.use((err, req, res, next) => {
   console.error('[Error global]', err);
   res.status(500).json({ success: false, message: 'Error interno del servidor' });
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception]', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[Unhandled Rejection]', reason);
 });
 
 // ─── WebSocket ────────────────────────────────────────────────────────────────
