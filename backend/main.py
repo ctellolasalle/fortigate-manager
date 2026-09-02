@@ -104,11 +104,12 @@ class DhcpReservation(BaseModel):
     @field_validator("action")
     @classmethod
     def validate_action(cls, v: Optional[str]) -> str:
-        allowed = {"assign-ip", "reserved"}
-        val = (v or "assign-ip").strip().lower()
-        if val not in allowed:
-            val = "assign-ip"
-        return val
+        val = (v or "assign").strip().lower()
+        if val in ("assign", "assign-ip"):
+            return "assign"
+        elif val == "reserved":
+            return "reserved"
+        return "assign"
 
 
 class DhcpReservationUpdate(BaseModel):
@@ -116,6 +117,18 @@ class DhcpReservationUpdate(BaseModel):
     description: Optional[str] = None
     action: Optional[str] = None
     type: Optional[str] = None
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            val = v.strip().lower()
+            if val in ("assign", "assign-ip"):
+                return "assign"
+            elif val == "reserved":
+                return "reserved"
+            return "assign"
+        return v
 
     @field_validator("ip")
     @classmethod
@@ -213,18 +226,25 @@ def _normalize_reserved(entries: list) -> list:
     """Normaliza y ordena las reservas del DHCP."""
     result = []
     for e in entries:
-        action = e.get("action", "")
-        ip_val = e.get("ip", "")
-        if not action:
-            if ip_val and ip_val != "0.0.0.0":
-                action = "reserved"
-            else:
-                action = "assign-ip"
+        raw_action = (e.get("action") or "").strip().lower()
+        ip_val = (e.get("ip") or "").strip()
+        if ip_val == "0.0.0.0":
+            ip_val = ""
+
+        if raw_action in ("assign", "assign-ip"):
+            action = "assign"
+            final_ip = ""
+        elif raw_action == "reserved" or ip_val:
+            action = "reserved"
+            final_ip = ip_val
+        else:
+            action = "assign"
+            final_ip = ""
 
         result.append({
             "id": e.get("id"),
             "mac": e.get("mac", ""),
-            "ip": ip_val if ip_val != "0.0.0.0" else "",
+            "ip": final_ip,
             "description": e.get("description", ""),
             "type": e.get("type", "mac"),
             "action": action,
@@ -338,10 +358,11 @@ async def create_reservation(reservation: DhcpReservation):
     if reservation.mac.lower() in used_macs:
         raise HTTPException(status_code=409, detail=f"La MAC {reservation.mac} ya tiene una regla configurada")
 
+    action = "reserved" if reservation.action == "reserved" else "assign"
     target_ip = reservation.ip.strip() if reservation.ip else ""
-    if reservation.action == "assign-ip":
+    if action == "assign":
         target_ip = ""
-    elif reservation.action == "reserved":
+    elif action == "reserved":
         if not target_ip or target_ip == "0.0.0.0":
             raise HTTPException(status_code=422, detail="La dirección IP es obligatoria para Reserve IP")
         if target_ip in used_ips:
@@ -354,13 +375,13 @@ async def create_reservation(reservation: DhcpReservation):
         "ip": target_ip,
         "description": (reservation.description or "").strip()[:255],
         "type": reservation.type or "mac",
-        "action": reservation.action or "assign-ip",
+        "action": action,
     }
     entries.append(new_entry)
 
     await _save_reserved_addresses(entries)
 
-    action_label = "asignada dinámica (Pool)" if new_entry["action"] == "assign-ip" else f"reservada a {target_ip}"
+    action_label = "asignada dinámica (Pool)" if action == "assign" else f"reservada a {target_ip}"
     return {
         "success": True,
         "message": f"Regla creada: {reservation.mac} ({action_label})",
@@ -383,13 +404,19 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     used_ips = _get_used_ips(entries)
 
-    if update.action is not None:
-        target["action"] = update.action
-        if update.action == "assign-ip":
-            target["ip"] = ""
+    current_action = target.get("action") or "assign"
+    if current_action in ("assign", "assign-ip"):
+        current_action = "assign"
 
-    current_action = target.get("action") or "assign-ip"
-    if current_action == "reserved" and update.ip is not None:
+    new_action = update.action if update.action is not None else current_action
+    if new_action in ("assign", "assign-ip"):
+        new_action = "assign"
+
+    target["action"] = new_action
+
+    if new_action == "assign":
+        target["ip"] = ""
+    elif new_action == "reserved" and update.ip is not None:
         new_ip = update.ip.strip()
         if not new_ip or new_ip == "0.0.0.0":
             raise HTTPException(status_code=422, detail="La dirección IP es obligatoria para Reserve IP")
@@ -403,6 +430,35 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
     if update.type is not None:
         target["type"] = update.type
 
+    # Para garantizar que en FortiOS la IP estática no quede guardada si se cambia a 'assign':
+    # Si la regla pasa a 'assign', hacemos delete del registro previo y post del nuevo registro limpio
+    item_url = f"{DHCP_URL}/reserved-address/{entry_id}"
+    clean_item = {
+        "id": target["id"],
+        "mac": target["mac"],
+        "type": target.get("type", "mac"),
+        "action": new_action,
+        "description": target.get("description", "")[:255],
+    }
+    if new_action == "reserved" and target.get("ip"):
+        clean_item["ip"] = target["ip"]
+
+    if new_action == "assign":
+        try:
+            del_resp = await http_client.delete(item_url, headers=HEADERS)
+            print(f"[FortiGate API] Delete previo para entry {entry_id}: {del_resp.status_code}")
+            post_resp = await http_client.post(f"{DHCP_URL}/reserved-address", headers=HEADERS, json=clean_item)
+            print(f"[FortiGate API] Recrear entry {entry_id} como assign: {post_resp.status_code}")
+            if post_resp.status_code in (200, 201):
+                return {
+                    "success": True,
+                    "message": f"Regla ID {entry_id} actualizada a Assign IP (Dinámica)",
+                    "entry": _normalize_reserved([target])[0],
+                }
+        except Exception as e:
+            print(f"[FortiGate API] Subtabla delete/post error: {e}")
+
+    # Fallback general con la subtabla completa limpia
     await _save_reserved_addresses(entries)
 
     return {

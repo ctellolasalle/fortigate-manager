@@ -390,7 +390,7 @@ function quickReserve(ip) {
 
 // ─── Modal Helpers: Action Segmented Control ──────────────────────────────
 function setActionType(actionVal) {
-  const a = actionVal === 'reserved' ? 'reserved' : 'assign-ip';
+  const a = (actionVal === 'reserved') ? 'reserved' : 'assign';
   $('form-action').value = a;
   document.querySelectorAll('#action-selector .segment-btn').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.actionType === a);
@@ -408,6 +408,7 @@ function setActionType(actionVal) {
   } else {
     // Modo Assign IP: El textbox de IP SE OCULTA (asignación dinámica por pool)
     if (ipGroup) ipGroup.classList.add('hidden');
+    $('form-ip').value = '';
   }
 }
 
@@ -419,7 +420,7 @@ function openAddModal() {
   setText('modal-save-text', 'OK');
   $('form-entry-id').value = '';
   if ($('form-type')) $('form-type').value = 'mac';
-  setActionType('assign-ip');
+  setActionType('assign');
   setText('desc-chars', '0');
   openModal('modal-overlay');
   setTimeout(() => $('form-description').focus(), 100);
@@ -435,7 +436,6 @@ function openEditModal(entryId) {
   $('form-entry-id').value = entryId;
   $('form-description').value = lease.description || '';
   $('form-mac').value = lease.mac || '';
-  $('form-ip').value = (lease.ip && lease.ip !== '0.0.0.0') ? lease.ip : '';
   if ($('form-type')) $('form-type').value = 'mac';
 
   // Deshabilitar MAC en edición (no se cambia la MAC de una regla existente)
@@ -443,9 +443,14 @@ function openEditModal(entryId) {
   $('form-mac').style.opacity = '.6';
 
   let action = lease.action;
+  if (action === 'assign-ip') action = 'assign';
   if (!action) {
-    action = (lease.ip && lease.ip !== '0.0.0.0') ? 'reserved' : 'assign-ip';
+    action = (lease.ip && lease.ip !== '0.0.0.0') ? 'reserved' : 'assign';
   }
+
+  // Si es assign, el campo IP queda limpio; si es reserved, se carga su IP
+  $('form-ip').value = (action === 'reserved' && lease.ip && lease.ip !== '0.0.0.0') ? lease.ip : '';
+
   setActionType(action);
   setText('desc-chars', (lease.description || '').length);
 
@@ -500,7 +505,7 @@ async function suggestNextIP() {
 // ─── Validation ────────────────────────────────────────────────────────────────
 function validateForm(isEdit = false) {
   let valid = true;
-  const action = $('form-action').value || 'assign-ip';
+  const action = ($('form-action').value === 'reserved') ? 'reserved' : 'assign';
 
   if (!isEdit) {
     let mac = $('form-mac').value.trim();
@@ -561,12 +566,12 @@ async function saveLease() {
   saveText.textContent = 'Guardando...';
   spinner.classList.remove('hidden');
 
-  const action = $('form-action').value || 'assign-ip';
+  const action = ($('form-action').value === 'reserved') ? 'reserved' : 'assign';
   const type = 'mac';
   const description = $('form-description').value.trim();
   const rawIp = $('form-ip').value.trim();
-  // Solo en Reserve IP se envía la IP elegida; en Assign IP y Block se envía 0.0.0.0
-  const ip = action === 'reserved' ? rawIp : '0.0.0.0';
+  // Solo en Reserve IP se envía la IP elegida; en Assign IP se envía vacío
+  const ip = action === 'reserved' ? rawIp : '';
 
   try {
     if (isEdit) {
