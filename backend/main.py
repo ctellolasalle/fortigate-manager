@@ -344,9 +344,12 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     if update.ip is not None and target.get("action") != "block":
         new_ip = update.ip.strip()
-        if new_ip and new_ip != "0.0.0.0" and new_ip in used_ips and new_ip != target.get("ip"):
-            raise HTTPException(status_code=409, detail=f"La IP {new_ip} ya está asignada")
-        target["ip"] = new_ip
+        if not new_ip or new_ip == "0.0.0.0":
+            target["ip"] = "0.0.0.0"
+        else:
+            if new_ip in used_ips and new_ip != target.get("ip"):
+                raise HTTPException(status_code=409, detail=f"La IP {new_ip} ya está asignada")
+            target["ip"] = new_ip
 
     if update.description is not None:
         target["description"] = update.description.strip()[:255]

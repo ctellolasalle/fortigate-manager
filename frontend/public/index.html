@@ -255,16 +255,7 @@
       <div class="modal-body">
         <form id="lease-form" novalidate>
           <input type="hidden" id="form-entry-id" value="">
-
-          <!-- Type Selector -->
-          <div class="form-group">
-            <label class="form-label">Type</label>
-            <div class="segmented-control" id="type-selector">
-              <button type="button" class="segment-btn active" data-type="mac">MAC Address</button>
-              <button type="button" class="segment-btn" data-type="option82" title="DHCP Relay Agent">DHCP Relay Agent</button>
-            </div>
-            <input type="hidden" id="form-type" value="mac">
-          </div>
+          <input type="hidden" id="form-type" value="mac">
 
           <!-- Description -->
           <div class="form-group">
@@ -314,20 +305,20 @@
             <input type="hidden" id="form-action" value="assign-ip">
           </div>
 
-          <!-- IP Field -->
+          <!-- IP Field (Opcional) -->
           <div class="form-group" id="ip-field-group">
-            <label class="form-label" for="form-ip">IP address <span class="form-required" id="ip-required-star">*</span></label>
+            <label class="form-label" for="form-ip">IP address <span style="font-weight:normal;color:var(--text-secondary);font-size:0.8rem;">(Opcional)</span></label>
             <div class="input-with-badge">
               <input
                 type="text"
                 class="form-input mono"
                 id="form-ip"
-                placeholder="192.168.171.X"
+                placeholder="192.168.171.X (Opcional)"
                 autocomplete="off"
               >
               <button type="button" class="btn btn-ghost btn-xs" id="suggest-ip-btn">Sugerir IP</button>
             </div>
-            <span class="form-hint" id="ip-hint-text">Rango V170: 192.168.171.1 - 192.168.171.254</span>
+            <span class="form-hint" id="ip-hint-text">Rango V170: 192.168.171.1 - 192.168.171.254 (dejar vacío si no se asigna IP fija)</span>
             <span class="form-error" id="err-ip"></span>
           </div>
 

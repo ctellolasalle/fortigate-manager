@@ -370,15 +370,7 @@ function quickReserve(ip) {
   }
 }
 
-// ─── Modal Helpers: Type & Action Segmented Controls ──────────────────────────
-function setType(typeVal) {
-  const t = typeVal || 'mac';
-  $('form-type').value = t;
-  document.querySelectorAll('#type-selector .segment-btn').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.type === t);
-  });
-}
-
+// ─── Modal Helpers: Action Segmented Control ──────────────────────────────
 function setActionType(actionVal) {
   const a = actionVal || 'assign-ip';
   $('form-action').value = a;
@@ -408,7 +400,7 @@ function openAddModal() {
   setText('modal-title', 'Create New IP Address Assignment Rule');
   setText('modal-save-text', 'OK');
   $('form-entry-id').value = '';
-  setType('mac');
+  if ($('form-type')) $('form-type').value = 'mac';
   setActionType('assign-ip');
   setText('desc-chars', '0');
   openModal('modal-overlay');
@@ -425,14 +417,14 @@ function openEditModal(entryId) {
   $('form-entry-id').value = entryId;
   $('form-description').value = lease.description || '';
   $('form-mac').value = lease.mac || '';
-  $('form-ip').value = lease.ip || '';
+  $('form-ip').value = (lease.ip && lease.ip !== '0.0.0.0') ? lease.ip : '';
+  if ($('form-type')) $('form-type').value = 'mac';
 
   // Deshabilitar MAC en edición (no se cambia la MAC de una regla existente)
   $('form-mac').disabled = true;
   $('form-mac').style.opacity = '.6';
 
   const action = lease.action || (lease.ip && lease.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
-  setType(lease.type || 'mac');
   setActionType(action);
   setText('desc-chars', (lease.description || '').length);
 
@@ -500,11 +492,11 @@ function validateForm(isEdit = false) {
     }
   }
 
-  // La IP sólo se exige y valida si NO es acción Block
-  if (action !== 'block') {
-    const ip = $('form-ip').value.trim();
+  // La IP NO es obligatoria para ninguna acción. Si se ingresa una IP, se valida el rango.
+  const ip = $('form-ip').value.trim();
+  if (action !== 'block' && ip) {
     const ipRe = /^192\.168\.171\.(([1-9])|([1-9]\d)|(1\d{2})|(2[0-4]\d)|(25[0-4]))$/;
-    if (!ip || !ipRe.test(ip)) {
+    if (!ipRe.test(ip)) {
       setError('form-ip', 'err-ip', 'IP debe estar en el rango 192.168.171.1 - 192.168.171.254');
       valid = false;
     } else {
@@ -544,9 +536,10 @@ async function saveLease() {
   spinner.classList.remove('hidden');
 
   const action = $('form-action').value || 'assign-ip';
-  const type = $('form-type').value || 'mac';
+  const type = 'mac';
   const description = $('form-description').value.trim();
-  const ip = action === 'block' ? '0.0.0.0' : $('form-ip').value.trim();
+  const rawIp = $('form-ip').value.trim();
+  const ip = action === 'block' ? '0.0.0.0' : (rawIp || '0.0.0.0');
 
   try {
     if (isEdit) {
@@ -721,12 +714,7 @@ function initEvents() {
     if (ip) quickReserve(ip);
   });
 
-  // Selectores segmentados (Type & Action Type estilo FortiGate)
-  $('type-selector')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.segment-btn');
-    if (btn && btn.dataset.type) setType(btn.dataset.type);
-  });
-
+  // Selector segmentado de Action Type (estilo FortiGate)
   $('action-selector')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.segment-btn');
     if (btn && btn.dataset.actionType) setActionType(btn.dataset.actionType);
