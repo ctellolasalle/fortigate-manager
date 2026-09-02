@@ -234,7 +234,7 @@ function renderLeases() {
   }
 
   tbody.innerHTML = leases.map((l) => {
-    const action = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
+    const action = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign-ip');
     let actionBadge = `<span class="badge-action badge-action-assign">Assign IP</span>`;
     if (action === 'block') {
       actionBadge = `<span class="badge-action badge-action-block">Block</span>`;
@@ -242,9 +242,12 @@ function renderLeases() {
       actionBadge = `<span class="badge-action badge-action-reserved">Reserve IP</span>`;
     }
 
-    const ipDisplay = action === 'block'
-      ? `<span style="color:var(--text-secondary);font-style:italic">Blocked</span>`
-      : (l.ip || '<span style="color:var(--text-secondary);font-style:italic">—</span>');
+    let ipDisplay = l.ip || '<span style="color:var(--text-secondary);font-style:italic">—</span>';
+    if (action === 'block') {
+      ipDisplay = `<span style="color:var(--error-color, #ef4444);font-style:italic">Blocked</span>`;
+    } else if (action === 'assign-ip') {
+      ipDisplay = `<span style="color:var(--text-secondary);font-style:italic">Dynamic (Pool)</span>`;
+    }
 
     return `
       <tr>
@@ -382,6 +385,7 @@ function renderAvailableIPs() {
 
 function quickReserve(ip) {
   openAddModal();
+  setActionType('reserved');
   const ipInput = $('form-ip');
   if (ipInput) {
     ipInput.value = ip;
@@ -401,14 +405,21 @@ function setActionType(actionVal) {
   const blockNotice = $('block-notice-box');
   const suggestBtn = $('suggest-ip-btn');
 
-  if (a === 'block') {
-    if (ipGroup) ipGroup.classList.add('hidden');
-    if (blockNotice) blockNotice.classList.remove('hidden');
-    clearError('form-ip', 'err-ip');
-  } else {
+  clearError('form-ip', 'err-ip');
+
+  if (a === 'reserved') {
+    // Modo Reserve IP: El textbox de IP ES VISIBLE Y OBLIGATORIO
     if (ipGroup) ipGroup.classList.remove('hidden');
     if (blockNotice) blockNotice.classList.add('hidden');
     if (suggestBtn) suggestBtn.style.display = 'inline-flex';
+  } else if (a === 'block') {
+    // Modo Block: El textbox de IP SE OCULTA
+    if (ipGroup) ipGroup.classList.add('hidden');
+    if (blockNotice) blockNotice.classList.remove('hidden');
+  } else {
+    // Modo Assign IP: El textbox de IP SE OCULTA (asignación dinámica por pool)
+    if (ipGroup) ipGroup.classList.add('hidden');
+    if (blockNotice) blockNotice.classList.add('hidden');
   }
 }
 
@@ -443,7 +454,10 @@ function openEditModal(entryId) {
   $('form-mac').disabled = true;
   $('form-mac').style.opacity = '.6';
 
-  const action = lease.action || (lease.ip && lease.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
+  let action = lease.action;
+  if (!action) {
+    action = (lease.ip && lease.ip !== '0.0.0.0') ? 'reserved' : 'assign-ip';
+  }
   setActionType(action);
   setText('desc-chars', (lease.description || '').length);
 
@@ -475,7 +489,7 @@ function openDeleteModal(entryId) {
   State.pendingDelete = entryId;
   setText('delete-target-desc', lease.description || `ID ${entryId}`);
   setText('delete-target-mac', lease.mac);
-  setText('delete-target-ip', lease.action === 'block' ? 'Bloqueado (sin IP)' : (lease.ip || '—'));
+  setText('delete-target-ip', lease.action === 'block' ? 'Bloqueado (sin IP)' : (lease.action === 'assign-ip' ? 'Asignación Dinámica' : (lease.ip || '—')));
   openModal('delete-overlay');
 }
 
@@ -513,11 +527,14 @@ function validateForm(isEdit = false) {
     }
   }
 
-  // La IP NO es obligatoria para ninguna acción. Si se ingresa una IP, se valida el rango.
-  const ip = $('form-ip').value.trim();
-  if (action !== 'block' && ip) {
+  // La IP del textbox SOLO es obligatoria cuando Action type es 'Reserve IP' ('reserved')
+  if (action === 'reserved') {
+    const ip = $('form-ip').value.trim();
     const ipRe = /^192\.168\.171\.(([1-9])|([1-9]\d)|(1\d{2})|(2[0-4]\d)|(25[0-4]))$/;
-    if (!ipRe.test(ip)) {
+    if (!ip) {
+      setError('form-ip', 'err-ip', 'La dirección IP es obligatoria para Reserve IP');
+      valid = false;
+    } else if (!ipRe.test(ip)) {
       setError('form-ip', 'err-ip', 'IP debe estar en el rango 192.168.171.1 - 192.168.171.254');
       valid = false;
     } else {
@@ -560,7 +577,8 @@ async function saveLease() {
   const type = 'mac';
   const description = $('form-description').value.trim();
   const rawIp = $('form-ip').value.trim();
-  const ip = action === 'block' ? '0.0.0.0' : (rawIp || '0.0.0.0');
+  // Solo en Reserve IP se envía la IP elegida; en Assign IP y Block se envía 0.0.0.0
+  const ip = action === 'reserved' ? rawIp : '0.0.0.0';
 
   try {
     if (isEdit) {

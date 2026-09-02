@@ -178,7 +178,10 @@ def _normalize_reserved(entries: list) -> list:
         action = e.get("action", "")
         ip_val = e.get("ip", "")
         if not action:
-            action = "block" if ip_val == "0.0.0.0" and e.get("type") == "mac" else "assign-ip"
+            if ip_val and ip_val != "0.0.0.0":
+                action = "reserved"
+            else:
+                action = "assign-ip"
 
         result.append({
             "id": e.get("id"),
@@ -258,24 +261,25 @@ async def get_reservations(
     search: Optional[str] = Query(None, description="Filtro por MAC, IP o descripción"),
 ):
     """
-    Lista todas las reservas DHCP del servidor ID configurado (V170).
-    Opcionalmente filtra por `search`.
+    Lista todas las reservas del servidor DHCP V170.
+    Permite filtrar por MAC, IP o descripción.
     """
     server = await _get_dhcp_server()
     entries = server.get("reserved-address", [])
     normalized = _normalize_reserved(entries)
 
     if search:
-        q = search.lower()
+        s = search.strip().lower()
         normalized = [
-            e for e in normalized
-            if q in e["mac"].lower()
-            or q in e["ip"]
-            or q in e["description"].lower()
+            r for r in normalized
+            if s in r["mac"].lower()
+            or s in r["ip"].lower()
+            or s in (r["description"] or "").lower()
         ]
 
     return {
-        "total": len(normalized),
+        "count": len(normalized),
+        "total": len(entries),
         "dhcp_server_id": DHCP_SERVER_ID,
         "reservations": normalized,
     }
@@ -297,9 +301,11 @@ async def create_reservation(reservation: DhcpReservation):
         raise HTTPException(status_code=409, detail=f"La MAC {reservation.mac} ya tiene una regla configurada")
 
     target_ip = reservation.ip.strip() if reservation.ip else ""
-    if reservation.action == "block":
+    if reservation.action in ("block", "assign-ip"):
         target_ip = "0.0.0.0"
-    elif target_ip and target_ip != "0.0.0.0":
+    elif reservation.action == "reserved":
+        if not target_ip or target_ip == "0.0.0.0":
+            raise HTTPException(status_code=422, detail="La dirección IP es obligatoria para Reserve IP")
         if target_ip in used_ips:
             raise HTTPException(status_code=409, detail=f"La IP {target_ip} ya está asignada")
 
@@ -317,7 +323,7 @@ async def create_reservation(reservation: DhcpReservation):
 
     await _put_dhcp_server(server)
 
-    action_label = "bloqueada" if new_entry["action"] == "block" else f"asignada a {target_ip}"
+    action_label = "bloqueada" if new_entry["action"] == "block" else ("asignada dinámica" if new_entry["action"] == "assign-ip" else f"reservada a {target_ip}")
     return {
         "success": True,
         "message": f"Regla creada: {reservation.mac} ({action_label})",
@@ -342,17 +348,17 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate):
 
     if update.action is not None:
         target["action"] = update.action
-        if update.action == "block":
+        if update.action in ("block", "assign-ip"):
             target["ip"] = "0.0.0.0"
 
-    if update.ip is not None and target.get("action") != "block":
+    current_action = target.get("action") or "assign-ip"
+    if current_action == "reserved" and update.ip is not None:
         new_ip = update.ip.strip()
         if not new_ip or new_ip == "0.0.0.0":
-            target["ip"] = "0.0.0.0"
-        else:
-            if new_ip in used_ips and new_ip != target.get("ip"):
-                raise HTTPException(status_code=409, detail=f"La IP {new_ip} ya está asignada")
-            target["ip"] = new_ip
+            raise HTTPException(status_code=422, detail="La dirección IP es obligatoria para Reserve IP")
+        if new_ip in used_ips and new_ip != target.get("ip"):
+            raise HTTPException(status_code=409, detail=f"La IP {new_ip} ya está asignada")
+        target["ip"] = new_ip
 
     if update.description is not None:
         target["description"] = update.description.strip()[:255]

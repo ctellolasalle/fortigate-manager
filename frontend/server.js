@@ -10,7 +10,7 @@ const rateLimit = require('express-rate-limit');
 const session = require('express-session');
 const passport = require('passport');
 const flash = require('connect-flash');
-const { createProxyMiddleware } = require('http-proxy-middleware');
+const { createProxyMiddleware, fixRequestBody } = require('http-proxy-middleware');
 const path = require('path');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -131,6 +131,7 @@ app.use(
     // El proxy mantiene la ruta completa: /api/dhcp/reservations → /dhcp/reservations
     pathRewrite: { '^/api': '' },
     on: {
+      proxyReq: fixRequestBody,
       error: (err, req, res) => {
         console.error('[Proxy Error]', err.message);
         res.status(502).json({

@@ -305,20 +305,20 @@
             <input type="hidden" id="form-action" value="assign-ip">
           </div>
 
-          <!-- IP Field (Opcional) -->
-          <div class="form-group" id="ip-field-group">
-            <label class="form-label" for="form-ip">IP address <span style="font-weight:normal;color:var(--text-secondary);font-size:0.8rem;">(Opcional)</span></label>
+          <!-- IP Field (Solo visible y obligatoria en modo Reserve IP) -->
+          <div class="form-group hidden" id="ip-field-group">
+            <label class="form-label" for="form-ip">IP address <span class="form-required">*</span></label>
             <div class="input-with-badge">
               <input
                 type="text"
                 class="form-input mono"
                 id="form-ip"
-                placeholder="192.168.171.X (Opcional)"
+                placeholder="192.168.171.X"
                 autocomplete="off"
               >
               <button type="button" class="btn btn-ghost btn-xs" id="suggest-ip-btn">Sugerir IP</button>
             </div>
-            <span class="form-hint" id="ip-hint-text">Rango V170: 192.168.171.1 - 192.168.171.254 (dejar vacío si no se asigna IP fija)</span>
+            <span class="form-hint" id="ip-hint-text">Rango V170: 192.168.171.1 - 192.168.171.254</span>
             <span class="form-error" id="err-ip"></span>
           </div>
 
