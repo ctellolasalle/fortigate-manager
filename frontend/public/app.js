@@ -482,10 +482,12 @@ function validateForm(isEdit = false) {
   const action = $('form-action').value || 'assign-ip';
 
   if (!isEdit) {
-    const mac = $('form-mac').value.trim();
-    const macRe = /^([0-9a-fA-F]{2}[:\-]){5}([0-9a-fA-F]{2})$/;
+    let mac = $('form-mac').value.trim();
+    mac = normalizeMac(mac);
+    $('form-mac').value = mac;
+    const macRe = /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
     if (!mac || !macRe.test(mac)) {
-      setError('form-mac', 'err-mac', 'Formato MAC inválido. Ej: AA:BB:CC:DD:EE:FF');
+      setError('form-mac', 'err-mac', 'Formato MAC inválido. Ej: 00:15:5D:AE:A3:A0 o 00-15-5D-AE-A3-A0');
       valid = false;
     } else {
       clearError('form-mac', 'err-mac');
@@ -644,14 +646,30 @@ async function refreshAll() {
   toast('Datos actualizados', 'info', 2000);
 }
 
-// ─── MAC auto-format on input ───────────────────────────────────────────────────
+// ─── MAC Normalization & Auto-format ──────────────────────────────────────────
+function normalizeMac(input) {
+  if (!input) return '';
+  // Extraer sólo caracteres hexadecimales (0-9, a-f, A-F)
+  const hexOnly = input.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  // Tomar hasta 12 caracteres hex (6 bytes)
+  const trimmed = hexOnly.slice(0, 12);
+  // Agrupar de a 2 caracteres y unir con dos puntos ':'
+  const parts = trimmed.match(/.{1,2}/g);
+  return parts ? parts.join(':') : '';
+}
+
 function formatMacInput(e) {
-  let val = e.target.value.replace(/[^0-9a-fA-F:]/g, '');
-  // Auto-insert colons every 2 chars
-  val = val.replace(/:/g, '');
-  if (val.length > 12) val = val.slice(0, 12);
-  const parts = val.match(/.{1,2}/g) || [];
-  e.target.value = parts.join(':');
+  const oldVal = e.target.value;
+  const formatted = normalizeMac(oldVal);
+  e.target.value = formatted;
+}
+
+function handleMacPaste(e) {
+  e.preventDefault();
+  const pastedText = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+  const formatted = normalizeMac(pastedText);
+  e.target.value = formatted;
+  clearError('form-mac', 'err-mac');
 }
 
 // ─── Utilities ─────────────────────────────────────────────────────────────────
@@ -799,8 +817,9 @@ function initEvents() {
   // Logout
   $('logout-btn')?.addEventListener('click', logout);
 
-  // MAC formatting
+  // MAC auto-formatting & clipboard paste handling (XX:XX:XX:XX:XX:XX & XX-XX-XX-XX-XX-XX)
   $('form-mac')?.addEventListener('input', formatMacInput);
+  $('form-mac')?.addEventListener('paste', handleMacPaste);
 
   // Keyboard: Escape closes modals
   document.addEventListener('keydown', (e) => {
