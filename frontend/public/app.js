@@ -286,12 +286,31 @@ function handleSearch(query) {
   if (!q) {
     State.filteredLeases = [...State.leases];
   } else {
-    State.filteredLeases = State.leases.filter(
-      (l) =>
-        l.mac.toLowerCase().includes(q) ||
-        l.ip.includes(q) ||
-        (l.description || '').toLowerCase().includes(q)
-    );
+    // Normalizar término de búsqueda para comparar en varios formatos
+    const qClean = q.replace(/[^0-9a-f]/g, '');
+    const qColon = q.replace(/-/g, ':');
+    const qHyphen = q.replace(/:/g, '-');
+
+    State.filteredLeases = State.leases.filter((l) => {
+      const mac = (l.mac || '').toLowerCase();
+      const macPlain = mac.replace(/[^0-9a-f]/g, '');
+      const macHyphen = mac.replace(/:/g, '-');
+      const ip = (l.ip || '').toLowerCase();
+      const desc = (l.description || '').toLowerCase();
+
+      // Búsqueda inteligente de MAC (admite '00:15:...', '00-15-...', '00155daea3a0' o fragmentos)
+      const matchMac =
+        mac.includes(q) ||
+        mac.includes(qColon) ||
+        macHyphen.includes(q) ||
+        macHyphen.includes(qHyphen) ||
+        (qClean.length >= 2 && macPlain.includes(qClean));
+
+      const matchIp = ip.includes(q);
+      const matchDesc = desc.includes(q);
+
+      return matchMac || matchIp || matchDesc;
+    });
   }
   applySort();
   renderLeases();
@@ -817,9 +836,12 @@ function initEvents() {
   // Logout
   $('logout-btn')?.addEventListener('click', logout);
 
-  // MAC auto-formatting & clipboard paste handling (XX:XX:XX:XX:XX:XX & XX-XX-XX-XX-XX-XX)
+  // MAC auto-formatting & clipboard paste handling (XX:XX:XX:XX:XX:XX, XX-XX-XX-XX-XX-XX, XXXXXXXXXXXX)
   $('form-mac')?.addEventListener('input', formatMacInput);
   $('form-mac')?.addEventListener('paste', handleMacPaste);
+  $('form-mac')?.addEventListener('blur', (e) => {
+    e.target.value = normalizeMac(e.target.value);
+  });
 
   // Keyboard: Escape closes modals
   document.addEventListener('keydown', (e) => {

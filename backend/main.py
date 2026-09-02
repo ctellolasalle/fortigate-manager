@@ -81,6 +81,9 @@ class DhcpReservation(BaseModel):
     def validate_mac(cls, v: str) -> str:
         v = v.strip().lower()
         v = v.replace("-", ":").replace(".", ":")
+        # Si viene plano sin delimitadores (ej: 00155daea3a0)
+        if len(v) == 12 and all(c in "0123456789abcdef" for c in v):
+            v = ":".join(v[i:i+2] for i in range(0, 12, 2))
         parts = v.split(":")
         if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
             raise ValueError(f"Dirección MAC inválida: {v}")
