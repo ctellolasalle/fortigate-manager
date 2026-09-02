@@ -37,7 +37,7 @@ info "Usuario de servicio: ${SERVICE_USER}"
 # ─── 1. Actualizar sistema ────────────────────────────────────────────────────
 hdr "1. Actualizando sistema"
 apt-get update -qq
-apt-get install -y -qq curl wget git ca-certificates gnupg lsb-release software-properties-common
+apt-get install -y -qq curl wget git ca-certificates gnupg lsb-release software-properties-common python3-venv python3-pip
 ok "Sistema actualizado"
 
 # ─── 2. Instalar Python 3.10+ ────────────────────────────────────────────────
@@ -79,8 +79,7 @@ fi
 # ─── 4. Dependencias Python (backend) ────────────────────────────────────────
 hdr "4. Instalando dependencias Python"
 python3 -m venv "${APP_DIR}/.venv"
-source "${APP_DIR}/.venv/bin/activate"
-pip install -q -r "${APP_DIR}/backend/requirements.txt"
+"${APP_DIR}/.venv/bin/pip" install -q -r "${APP_DIR}/backend/requirements.txt"
 ok "Dependencias Python instaladas en entorno virtual"
 
 # ─── 5. Dependencias Node.js (frontend) ──────────────────────────────────────
