@@ -229,10 +229,11 @@ function renderLeases() {
   setText('record-count', `${leases.length} registros`);
 
   if (!leases.length) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No hay arrendamientos que coincidan con la búsqueda</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No hay arrendamientos que coincidan con la búsqueda</td></tr>`;
     return;
   }
 
+  tbody.innerHTML = leases.map((l) => {
     const action = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'assign-ip' : 'block');
     let actionBadge = `<span class="badge-action badge-action-assign">Assign IP</span>`;
     if (action === 'block') {
