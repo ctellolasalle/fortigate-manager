@@ -590,11 +590,26 @@ async def delete_reservation(entry_id: int, request: Request):
         raise HTTPException(status_code=404, detail=f"Reserva ID {entry_id} no encontrada")
 
     mac = target.get("mac", "")
-    ip = target.get("ip", "")
+    raw_ip = (target.get("ip") or "").strip()
+    action = (target.get("action") or "").strip().lower()
+    ip_display = raw_ip if (action == "reserved" and raw_ip and raw_ip != "0.0.0.0") else "Dinámica (Pool)"
     desc = target.get("description", "")
 
-    entries = [e for e in entries if e.get("id") != entry_id]
-    await _save_reserved_addresses(entries)
+    # Intentar borrado atómico de la entrada en la subtabla de FortiOS
+    item_url = f"{DHCP_URL}/reserved-address/{entry_id}"
+    deleted_via_subtable = False
+    try:
+        del_resp = await http_client.delete(item_url, headers=HEADERS)
+        if del_resp.status_code in (200, 201):
+            deleted_via_subtable = True
+        else:
+            print(f"[FortiGate API] DELETE subtabla falló ({del_resp.status_code}): {del_resp.text[:200]}")
+    except Exception as e:
+        print(f"[FortiGate API] Error en DELETE subtabla: {e}")
+
+    if not deleted_via_subtable:
+        entries = [e for e in entries if e.get("id") != entry_id]
+        await _save_reserved_addresses(entries)
 
     actor = _extract_actor(request)
     log_event(
@@ -603,15 +618,15 @@ async def delete_reservation(entry_id: int, request: Request):
         user_name=actor["name"],
         action_status="SUCCESS",
         target_mac=mac,
-        target_ip=ip or "Dinámica (Pool)",
+        target_ip=ip_display,
         description=desc,
-        details={"id": entry_id},
+        details={"id": entry_id, "action": action},
         client_ip=actor["ip"],
     )
 
     return {
         "success": True,
-        "message": f"Reserva eliminada: {mac} → {ip or 'Dynamic'}",
+        "message": f"Reserva eliminada: {mac} → {ip_display}",
     }
 
 
