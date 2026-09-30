@@ -407,9 +407,30 @@ async def create_reservation(reservation: DhcpReservation, request: Request):
         "type": reservation.type or "mac",
         "action": action,
     }
-    entries.append(new_entry)
+    clean_item = {
+        "id": new_id,
+        "mac": reservation.mac,
+        "type": reservation.type or "mac",
+        "action": action,
+        "description": (reservation.description or "").strip()[:255],
+    }
+    if action == "reserved" and target_ip:
+        clean_item["ip"] = target_ip
 
-    await _save_reserved_addresses(entries)
+    # Intentar creación atómica vía POST a la subtabla /reserved-address (evita que FortiOS requiera campo ip en assign)
+    created_via_subtable = False
+    try:
+        post_resp = await http_client.post(f"{DHCP_URL}/reserved-address", headers=HEADERS, json=clean_item)
+        if post_resp.status_code in (200, 201):
+            created_via_subtable = True
+        else:
+            print(f"[FortiGate API] POST subtabla falló ({post_resp.status_code}): {post_resp.text[:200]}")
+    except Exception as e:
+        print(f"[FortiGate API] Error en POST subtabla: {e}")
+
+    if not created_via_subtable:
+        # Fallback al guardado tradicional
+        await _save_reserved_addresses(entries)
 
     actor = _extract_actor(request)
     log_event(
