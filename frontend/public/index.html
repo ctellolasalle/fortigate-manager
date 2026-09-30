@@ -39,6 +39,11 @@
         <span class="nav-icon">🌐</span>
         <span>IPs Disponibles</span>
       </a>
+      <a href="#" class="nav-item" data-view="printers" id="nav-printers">
+        <span class="nav-icon">🖨️</span>
+        <span>Impresoras</span>
+        <span class="nav-badge" id="printers-count">—</span>
+      </a>
       <a href="#" class="nav-item hidden" data-view="audit" id="nav-audit">
         <span class="nav-icon">📜</span>
         <span>Auditoría</span>
@@ -326,7 +331,184 @@
         </div>
       </div>
     </section>
+
+    <!-- ─── View: Acceso a Impresoras (Firewall Address Groups) ─────────────── -->
+    <section class="view" id="view-printers">
+      <div class="page-header">
+        <div>
+          <h1>Control de Acceso a Impresoras</h1>
+          <p class="page-sub">Permisos de dispositivos (VLAN 160 y 170) hacia impresoras de Inicial, Primaria y Secundaria</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="add-printer-perm-btn">
+            <span>➕</span> Asignar Acceso a Dispositivo
+          </button>
+        </div>
+      </div>
+
+      <!-- Grupos Info Cards -->
+      <div class="cards-grid cards-grid-3">
+        <div class="card stat-card">
+          <div class="card-header">
+            <span class="card-icon">🖨️</span>
+            <span class="card-title">Inicial (VLAN 210)</span>
+          </div>
+          <div class="stat-value" id="stat-printer-ini">—</div>
+          <div class="stat-sub">Policy 55 · CLIENT_PRINT_INI</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-header">
+            <span class="card-icon">🖨️</span>
+            <span class="card-title">Primaria (VLAN 220)</span>
+          </div>
+          <div class="stat-value" id="stat-printer-pri">—</div>
+          <div class="stat-sub">Policy 54 · CLIENT_PRINT_PRI</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-header">
+            <span class="card-icon">🖨️</span>
+            <span class="card-title">Secundaria (VLAN 230)</span>
+          </div>
+          <div class="stat-value" id="stat-printer-sec">—</div>
+          <div class="stat-sub">Policy 53 · CLIENT_PRINT_SEC</div>
+        </div>
+      </div>
+
+      <!-- Tabla de dispositivos con permisos -->
+      <div class="card table-card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+          <div class="table-search">
+            <input
+              type="text"
+              class="search-input"
+              id="printer-search-input"
+              placeholder="Buscar por MAC, equipo o usuario..."
+              autocomplete="off"
+            >
+          </div>
+          <div class="table-actions">
+            <span class="count-badge" id="printer-count-badge">0 dispositivos</span>
+            <button class="btn btn-ghost btn-sm" id="printer-refresh-btn" title="Recargar">↻</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="printers-table">
+            <thead>
+              <tr>
+                <th style="min-width: 170px;">Dispositivo (MAC)</th>
+                <th>Nombre / Descripción</th>
+                <th style="text-align: center; min-width: 130px;">Inicial (V210)</th>
+                <th style="text-align: center; min-width: 130px;">Primaria (V220)</th>
+                <th style="text-align: center; min-width: 140px;">Secundaria (V230)</th>
+                <th style="width: 100px; text-align: right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="printers-tbody">
+              <tr><td colspan="6" class="empty-row"><div class="loading-spinner"></div> Cargando permisos de impresoras...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
+
+  <!-- ─── Modal: Asignar / Editar Acceso a Impresoras ────────────────────────── -->
+  <div class="modal-overlay" id="printer-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="printer-modal-title">
+    <div class="modal" id="printer-modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="printer-modal-title">Gestionar Acceso a Impresoras</h2>
+        <button class="modal-close" id="printer-modal-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="printer-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="printer-form-mac">Dirección MAC del Dispositivo <span class="form-required">*</span></label>
+            <input
+              type="text"
+              class="form-input mono"
+              id="printer-form-mac"
+              placeholder="XX:XX:XX:XX:XX:XX"
+              autocomplete="off"
+              maxlength="17"
+            >
+            <span class="form-hint">Dispositivo en VLAN 160 o 170</span>
+            <span class="form-error" id="err-printer-mac"></span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="printer-form-desc">Nombre del Equipo / Usuario</label>
+            <input
+              type="text"
+              class="form-input"
+              id="printer-form-desc"
+              placeholder="Ej: Notebook Docente Inicial / Juan Perez"
+              maxlength="255"
+            >
+          </div>
+
+          <div class="form-section-title" style="margin-top: 1.25rem;">Redes de Impresoras con Acceso Autorizado</div>
+          <p class="form-hint" style="margin-bottom: 1rem;">Selecciona una o más redes a las cuales este dispositivo podrá enviar impresiones:</p>
+
+          <div class="printer-switches-grid">
+            <label class="printer-checkbox-card" id="card-check-ini">
+              <input type="checkbox" id="printer-check-ini" class="printer-check-input">
+              <div class="printer-check-content">
+                <div class="printer-check-title">🌱 Impresoras de Inicial</div>
+                <div class="printer-check-sub">VLAN 210 · Grupo CLIENT_PRINT_INI (Policy 55)</div>
+              </div>
+            </label>
+
+            <label class="printer-checkbox-card" id="card-check-pri">
+              <input type="checkbox" id="printer-check-pri" class="printer-check-input">
+              <div class="printer-check-content">
+                <div class="printer-check-title">📘 Impresoras de Primaria</div>
+                <div class="printer-check-sub">VLAN 220 · Grupo CLIENT_PRINT_PRI (Policy 54)</div>
+              </div>
+            </label>
+
+            <label class="printer-checkbox-card" id="card-check-sec">
+              <input type="checkbox" id="printer-check-sec" class="printer-check-input">
+              <div class="printer-check-content">
+                <div class="printer-check-title">🎓 Impresoras de Secundaria</div>
+                <div class="printer-check-sub">VLAN 230 · Grupo CLIENT_PRINT_SEC (Policy 53)</div>
+              </div>
+            </label>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="printer-modal-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="printer-modal-save" type="button">
+          <span id="printer-modal-save-text">Guardar Accesos</span>
+          <div class="btn-spinner hidden" id="printer-modal-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Confirmar revocación de impresoras ──────────────────────── -->
+  <div class="modal-overlay" id="printer-delete-overlay" role="dialog" aria-modal="true">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">⚠️ Revocar Accesos a Impresoras</h2>
+        <button class="modal-close" id="printer-delete-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>¿Quitar todos los accesos de impresora para <strong id="printer-delete-desc"></strong>?</p>
+        <div class="delete-details">
+          <div class="info-row"><span class="info-label">MAC</span><span class="info-value mono" id="printer-delete-mac"></span></div>
+        </div>
+        <p class="delete-warning">Se removerá de los grupos de Inicial, Primaria y Secundaria en el FortiGate.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="printer-delete-cancel">Cancelar</button>
+        <button class="btn btn-danger" id="printer-delete-confirm">
+          <span id="printer-delete-confirm-text">Revocar Accesos</span>
+          <div class="btn-spinner hidden" id="printer-delete-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ─── Modal: Nueva / Editar Regla de Asignación ────────────────────────── -->
   <div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">

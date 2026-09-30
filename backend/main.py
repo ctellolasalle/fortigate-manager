@@ -31,6 +31,32 @@ V170_END_IP = os.getenv("V170_END_IP", "192.168.171.254")
 FGT_BASE_URL = f"https://{FGT_HOST}:{FGT_PORT}"
 DHCP_URL = f"{FGT_BASE_URL}/api/v2/cmdb/system.dhcp/server/{DHCP_SERVER_ID}"
 STATUS_URL = f"{FGT_BASE_URL}/api/v2/monitor/system/status"
+FW_ADDRESS_URL = f"{FGT_BASE_URL}/api/v2/cmdb/firewall/address"
+FW_ADDRGRP_URL = f"{FGT_BASE_URL}/api/v2/cmdb/firewall/addrgrp"
+
+PRINTER_GROUPS = {
+    "ini": {
+        "group_name": "CLIENT_PRINT_INI",
+        "policy_id": 55,
+        "policy_name": "ACC_PRINTER_INI",
+        "vlan": 210,
+        "label": "Inicial (VLAN 210)",
+    },
+    "pri": {
+        "group_name": "CLIENT_PRINT_PRI",
+        "policy_id": 54,
+        "policy_name": "ACC_PRINTER_PRI",
+        "vlan": 220,
+        "label": "Primaria (VLAN 220)",
+    },
+    "sec": {
+        "group_name": "CLIENT_PRINT_SEC",
+        "policy_id": 53,
+        "policy_name": "ACC_PRINTER_SEC",
+        "vlan": 230,
+        "label": "Secundaria (VLAN 230)",
+    },
+}
 
 HEADERS = {
     "Authorization": f"Bearer {FGT_TOKEN}",
@@ -161,6 +187,26 @@ class AuditEventIn(BaseModel):
     description: Optional[str] = None
     details: Optional[dict] = None
     client_ip: Optional[str] = None
+
+
+class PrinterPermissionIn(BaseModel):
+    mac: str
+    description: Optional[str] = ""
+    ini: bool = False
+    pri: bool = False
+    sec: bool = False
+
+    @field_validator("mac")
+    @classmethod
+    def validate_mac(cls, v: str) -> str:
+        v = v.strip().lower()
+        v = v.replace("-", ":").replace(".", ":")
+        if len(v) == 12 and all(c in "0123456789abcdef" for c in v):
+            v = ":".join(v[i:i+2] for i in range(0, 12, 2))
+        parts = v.split(":")
+        if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
+            raise ValueError(f"Dirección MAC inválida: {v}")
+        return v
 
 
 def _extract_actor(request: Request) -> dict:
@@ -741,3 +787,271 @@ async def record_audit_event(event: AuditEventIn, request: Request):
         client_ip=client_ip,
     )
     return {"success": True, "id": record_id}
+
+
+# ─── Endpoints de Acceso a Impresoras (Firewall Address & Addrgrp) ─────────────
+
+def _mac_to_object_name(mac: str) -> str:
+    """Convierte una MAC en un nombre estándar de objeto en FortiOS: MAC_AABBCCDDEEFF"""
+    clean = mac.replace(":", "").replace("-", "").replace(".", "").upper()
+    return f"MAC_{clean}"
+
+
+async def _get_address_group_members(group_name: str) -> list:
+    """Obtiene los nombres de los miembros de un grupo de direcciones en FortiOS."""
+    url = f"{FW_ADDRGRP_URL}/{group_name}"
+    try:
+        resp = await http_client.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            data = resp.json()
+            results = data.get("results", [])
+            if results:
+                members = results[0].get("member", [])
+                return [m.get("name") for m in members if isinstance(m, dict) and m.get("name")]
+        return []
+    except Exception as e:
+        print(f"[FortiGate API] Error obteniendo grupo {group_name}: {e}")
+        return []
+
+
+async def _get_address_object(obj_name: str) -> Optional[dict]:
+    """Obtiene un objeto firewall address por nombre."""
+    url = f"{FW_ADDRESS_URL}/{obj_name}"
+    try:
+        resp = await http_client.get(url, headers=HEADERS)
+        if resp.status_code == 200:
+            results = resp.json().get("results", [])
+            return results[0] if results else None
+        return None
+    except Exception as e:
+        print(f"[FortiGate API] Error consultando objeto {obj_name}: {e}")
+        return None
+
+
+async def _ensure_address_object(obj_name: str, mac: str, comment: str = "") -> bool:
+    """Crea o actualiza el objeto firewall address de tipo MAC en FortiOS si es necesario."""
+    payload = {
+        "name": obj_name,
+        "type": "mac",
+        "macaddr": mac,
+        "comment": (comment or "").strip()[:255],
+    }
+
+    url = f"{FW_ADDRESS_URL}/{obj_name}"
+    try:
+        # Verificar si ya existe
+        check = await http_client.get(url, headers=HEADERS)
+        if check.status_code == 200:
+            # Actualizar comentario si cambió
+            await http_client.put(url, headers=HEADERS, json={"comment": payload["comment"]})
+            return True
+        else:
+            # Crear objeto
+            create_resp = await http_client.post(FW_ADDRESS_URL, headers=HEADERS, json=payload)
+            return create_resp.status_code in (200, 201)
+    except Exception as e:
+        print(f"[FortiGate API] Error asegurando objeto {obj_name}: {e}")
+        return False
+
+
+async def _set_group_members(group_name: str, members: list) -> bool:
+    """Actualiza la lista completa de miembros de un grupo de direcciones."""
+    member_payload = [{"name": m} for m in members]
+    url = f"{FW_ADDRGRP_URL}/{group_name}"
+    try:
+        resp = await http_client.put(url, headers=HEADERS, json={"member": member_payload})
+        return resp.status_code in (200, 201)
+    except Exception as e:
+        print(f"[FortiGate API] Error actualizando miembros de {group_name}: {e}")
+        return False
+
+
+@app.get("/printers/permissions")
+async def get_printer_permissions():
+    """
+    Lista todos los dispositivos con acceso a impresoras y sus membresías en los grupos:
+    - CLIENT_PRINT_INI (VLAN 210)
+    - CLIENT_PRINT_PRI (VLAN 220)
+    - CLIENT_PRINT_SEC (VLAN 230)
+    """
+    # 1. Consultar miembros actuales de los 3 grupos
+    group_members = {}
+    for key, info in PRINTER_GROUPS.items():
+        group_members[key] = await _get_address_group_members(info["group_name"])
+
+    # 2. Obtener lista de todos los objetos MAC únicos en cualquiera de los 3 grupos
+    all_obj_names = set()
+    for mem_list in group_members.values():
+        all_obj_names.update(mem_list)
+
+    # 3. También buscar información de arrendamientos DHCP para enriquecer nombres/IPs
+    dhcp_server = await _get_dhcp_server()
+    dhcp_entries = dhcp_server.get("reserved-address", [])
+    dhcp_map = {e.get("mac", "").lower(): e for e in dhcp_entries if e.get("mac")}
+
+    devices = []
+    for obj_name in sorted(all_obj_names):
+        obj_data = await _get_address_object(obj_name)
+        mac = ""
+        description = ""
+        if obj_data:
+            # En FortiOS macaddr suele venir formateado o en obj_data
+            mac = (obj_data.get("macaddr") or "").lower()
+            description = obj_data.get("comment", "")
+        
+        # Si el objeto no traía macaddr, intentar deducirlo del nombre MAC_AABBCCDDEEFF
+        if not mac and obj_name.startswith("MAC_") and len(obj_name) == 16:
+            raw_hex = obj_name[4:].lower()
+            mac = ":".join(raw_hex[i:i+2] for i in range(0, 12, 2))
+
+        # Enriquecer descripción con DHCP si no tenía comentario propio
+        dhcp_match = dhcp_map.get(mac.lower())
+        ip_assigned = dhcp_match.get("ip") if dhcp_match else ""
+        if not description and dhcp_match and dhcp_match.get("description"):
+            description = dhcp_match.get("description")
+
+        devices.append({
+            "object_name": obj_name,
+            "mac": mac or obj_name,
+            "ip": ip_assigned or "",
+            "description": description,
+            "ini": obj_name in group_members["ini"],
+            "pri": obj_name in group_members["pri"],
+            "sec": obj_name in group_members["sec"],
+        })
+
+    # Resumen de estadísticas por grupo
+    summary = {
+        "ini_count": len(group_members["ini"]),
+        "pri_count": len(group_members["pri"]),
+        "sec_count": len(group_members["sec"]),
+        "total_devices": len(devices),
+        "groups": PRINTER_GROUPS,
+    }
+
+    return {
+        "success": True,
+        "summary": summary,
+        "devices": devices,
+    }
+
+
+@app.post("/printers/permissions")
+async def save_printer_permission(perm: PrinterPermissionIn, request: Request):
+    """
+    Crea o actualiza los permisos de un dispositivo en los 3 grupos de impresoras:
+    - Asegura la existencia del Address Object en FortiOS.
+    - Sincroniza su presencia en CLIENT_PRINT_INI, CLIENT_PRINT_PRI y CLIENT_PRINT_SEC.
+    """
+    actor = _extract_actor(request)
+    mac = perm.mac.lower()
+    obj_name = _mac_to_object_name(mac)
+
+    # 1. Asegurar objeto MAC en firewall address
+    obj_ok = await _ensure_address_object(obj_name, mac, perm.description)
+    if not obj_ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo crear o actualizar el objeto {obj_name} en el FortiGate"
+        )
+
+    # 2. Sincronizar membresía en cada uno de los 3 grupos
+    desired_membership = {
+        "ini": perm.ini,
+        "pri": perm.pri,
+        "sec": perm.sec,
+    }
+
+    updated_groups = []
+    for key, info in PRINTER_GROUPS.items():
+        group_name = info["group_name"]
+        current_members = await _get_address_group_members(group_name)
+        should_be_in = desired_membership[key]
+        is_in = obj_name in current_members
+
+        if should_be_in and not is_in:
+            current_members.append(obj_name)
+            await _set_group_members(group_name, current_members)
+            updated_groups.append(f"+{info['label']}")
+        elif not should_be_in and is_in:
+            current_members = [m for m in current_members if m != obj_name]
+            await _set_group_members(group_name, current_members)
+            updated_groups.append(f"-{info['label']}")
+
+    # 3. Registrar en auditoría
+    action_label = ", ".join(updated_groups) if updated_groups else "Sin cambios de grupos"
+    log_event(
+        event_type="PRINTER_PERM",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=mac,
+        target_ip="Impresoras",
+        description=perm.description or "Permisos de Impresora",
+        details={
+            "object_name": obj_name,
+            "ini": perm.ini,
+            "pri": perm.pri,
+            "sec": perm.sec,
+            "changes": action_label,
+        },
+        client_ip=actor["ip"],
+    )
+
+    return {
+        "success": True,
+        "message": f"Permisos actualizados para {mac} ({action_label})",
+        "device": {
+            "object_name": obj_name,
+            "mac": mac,
+            "description": perm.description,
+            "ini": perm.ini,
+            "pri": perm.pri,
+            "sec": perm.sec,
+        },
+    }
+
+
+@app.delete("/printers/permissions/{mac}")
+async def revoke_printer_permissions(mac: str, request: Request):
+    """
+    Revoca todos los accesos de impresora de una dirección MAC:
+    - La remueve de los grupos CLIENT_PRINT_INI, CLIENT_PRINT_PRI, CLIENT_PRINT_SEC.
+    - Elimina el objeto firewall address asociado en FortiOS.
+    """
+    actor = _extract_actor(request)
+    clean_mac = mac.strip().lower().replace("-", ":").replace(".", ":")
+    obj_name = _mac_to_object_name(clean_mac)
+
+    # 1. Remover de los 3 grupos
+    for key, info in PRINTER_GROUPS.items():
+        group_name = info["group_name"]
+        current_members = await _get_address_group_members(group_name)
+        if obj_name in current_members:
+            current_members = [m for m in current_members if m != obj_name]
+            await _set_group_members(group_name, current_members)
+
+    # 2. Eliminar el objeto firewall address
+    del_url = f"{FW_ADDRESS_URL}/{obj_name}"
+    try:
+        await http_client.delete(del_url, headers=HEADERS)
+    except Exception as e:
+        print(f"[FortiGate API] Error eliminando objeto {obj_name}: {e}")
+
+    # 3. Auditoría
+    log_event(
+        event_type="PRINTER_REVOKE",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=clean_mac,
+        target_ip="Impresoras",
+        description=f"Revocados todos los accesos de impresora ({obj_name})",
+        details={"object_name": obj_name},
+        client_ip=actor["ip"],
+    )
+
+    return {
+        "success": True,
+        "message": f"Accesos de impresora revocados para {clean_mac}",
+    }

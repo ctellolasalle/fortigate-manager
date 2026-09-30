@@ -11,12 +11,17 @@ const State = {
   leases: [],
   filteredLeases: [],
   availableIPs: [],
+  printers: [],
+  filteredPrinters: [],
+  printerSummary: null,
   stats: null,
   fortiStatus: null,
   currentView: 'dashboard',
   sort: { col: 'ip', dir: 'asc' },
   searchDebounce: null,
+  printerDebounce: null,
   pendingDelete: null,
+  pendingPrinterDelete: null,
   editingId: null,
 };
 
@@ -105,12 +110,14 @@ function switchView(name) {
     dashboard: 'Dashboard',
     leases: 'Arrendamientos DHCP',
     available: 'IPs Disponibles',
+    printers: 'Control de Acceso a Impresoras',
     audit: 'Registro de Auditoría',
   };
   setText('breadcrumb', titles[name] || name);
 
   // Load data for view
   if (name === 'available') loadAvailableIPs();
+  if (name === 'printers') loadPrinterPermissions();
   if (name === 'audit') {
     loadAuditUsers();
     loadAuditLogs();
@@ -743,6 +750,204 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// ─── Control de Impresoras (Firewall Address Groups) ───────────────────────────
+async function loadPrinterPermissions() {
+  const tbody = $('printers-tbody');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row"><div class="loading-spinner"></div> Consultando FortiGate...</td></tr>`;
+  }
+
+  try {
+    const data = await API.get('/printers/permissions');
+    State.printers = data.devices || [];
+    State.filteredPrinters = [...State.printers];
+    State.printerSummary = data.summary || {};
+
+    // Actualizar contadores
+    setText('stat-printer-ini', data.summary?.ini_count ?? '0');
+    setText('stat-printer-pri', data.summary?.pri_count ?? '0');
+    setText('stat-printer-sec', data.summary?.sec_count ?? '0');
+    setText('printers-count', data.devices?.length ?? '0');
+    setText('printer-count-badge', `${data.devices?.length ?? 0} dispositivo${(data.devices?.length ?? 0) === 1 ? '' : 's'}`);
+
+    renderPrinterPermissions();
+  } catch (err) {
+    console.error('Error cargando permisos de impresoras:', err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" class="empty-row" style="color:var(--error-color,#ef4444);">❌ Error al consultar FortiGate: ${escapeHtml(err.message)}</td></tr>`;
+    }
+    toast(`Error al obtener permisos de impresoras: ${err.message}`, 'error', 5000);
+  }
+}
+
+function renderPrinterPermissions() {
+  const tbody = $('printers-tbody');
+  if (!tbody) return;
+
+  const devices = State.filteredPrinters;
+  if (!devices || devices.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No hay dispositivos registrados con acceso a impresoras</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = devices.map((d) => {
+    const iniBadge = d.ini
+      ? `<span class="badge-printer-access badge-printer-active" title="Autorizado en CLIENT_PRINT_INI (VLAN 210)">✓ Inicial</span>`
+      : `<span class="badge-printer-access badge-printer-inactive" title="Sin acceso">✕ No</span>`;
+
+    const priBadge = d.pri
+      ? `<span class="badge-printer-access badge-printer-active" title="Autorizado en CLIENT_PRINT_PRI (VLAN 220)">✓ Primaria</span>`
+      : `<span class="badge-printer-access badge-printer-inactive" title="Sin acceso">✕ No</span>`;
+
+    const secBadge = d.sec
+      ? `<span class="badge-printer-access badge-printer-active" title="Autorizado en CLIENT_PRINT_SEC (VLAN 230)">✓ Secundaria</span>`
+      : `<span class="badge-printer-access badge-printer-inactive" title="Sin acceso">✕ No</span>`;
+
+    return `
+      <tr>
+        <td class="mono font-semibold">${escapeHtml(d.mac)}</td>
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.2rem;">
+            <span>${escapeHtml(d.description || '—')}</span>
+            ${d.ip ? `<span class="mono" style="font-size:0.75rem; color:var(--text-secondary);">IP DHCP: ${escapeHtml(d.ip)}</span>` : ''}
+          </div>
+        </td>
+        <td style="text-align:center;">${iniBadge}</td>
+        <td style="text-align:center;">${priBadge}</td>
+        <td style="text-align:center;">${secBadge}</td>
+        <td style="text-align:right;">
+          <div class="printer-actions-cell">
+            <button class="btn btn-ghost btn-xs" data-printer-action="edit" data-mac="${escapeHtml(d.mac)}" title="Editar permisos">✏️</button>
+            <button class="btn btn-ghost btn-xs" data-printer-action="delete" data-mac="${escapeHtml(d.mac)}" title="Revocar todos los accesos" style="color:var(--error-color);">🗑️</button>
+          </div>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function handlePrinterSearch(query) {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) {
+    State.filteredPrinters = [...State.printers];
+  } else {
+    State.filteredPrinters = State.printers.filter((d) => {
+      const mac = (d.mac || '').toLowerCase();
+      const desc = (d.description || '').toLowerCase();
+      const ip = (d.ip || '').toLowerCase();
+      return mac.includes(q) || desc.includes(q) || ip.includes(q);
+    });
+  }
+  setText('printer-count-badge', `${State.filteredPrinters.length} de ${State.printers.length} dispositivos`);
+  renderPrinterPermissions();
+}
+
+function openPrinterModal(mac = null) {
+  const isEdit = !!mac;
+  $('printer-modal-title').textContent = isEdit ? 'Editar Acceso a Impresoras' : 'Asignar Acceso a Impresoras';
+  $('printer-modal-save-text').textContent = isEdit ? 'Actualizar Accesos' : 'Guardar Accesos';
+
+  // Limpiar errores
+  clearError('printer-form-mac', 'err-printer-mac');
+
+  if (isEdit) {
+    const dev = State.printers.find((p) => p.mac.toLowerCase() === mac.toLowerCase());
+    $('printer-form-mac').value = dev?.mac || mac;
+    $('printer-form-mac').disabled = true;
+    $('printer-form-desc').value = dev?.description || '';
+    $('printer-check-ini').checked = !!dev?.ini;
+    $('printer-check-pri').checked = !!dev?.pri;
+    $('printer-check-sec').checked = !!dev?.sec;
+  } else {
+    $('printer-form-mac').value = '';
+    $('printer-form-mac').disabled = false;
+    $('printer-form-desc').value = '';
+    $('printer-check-ini').checked = false;
+    $('printer-check-pri').checked = false;
+    $('printer-check-sec').checked = false;
+  }
+
+  openModal('printer-modal-overlay');
+}
+
+async function savePrinterPermission() {
+  const macInput = $('printer-form-mac');
+  const mac = (macInput.value || '').trim();
+  const desc = $('printer-form-desc').value.trim();
+  const ini = $('printer-check-ini').checked;
+  const pri = $('printer-check-pri').checked;
+  const sec = $('printer-check-sec').checked;
+
+  if (!validateMacFormat(mac)) {
+    showError('printer-form-mac', 'err-printer-mac', 'Ingresa una MAC válida (ej: 00:15:5D:AE:A3:A0)');
+    macInput.focus();
+    return;
+  }
+
+  const saveBtn = $('printer-modal-save');
+  const saveText = $('printer-modal-save-text');
+  const spinner = $('printer-modal-spinner');
+
+  saveBtn.disabled = true;
+  saveText.textContent = 'Aplicando en FortiGate...';
+  spinner.classList.remove('hidden');
+
+  try {
+    const res = await API.post('/printers/permissions', {
+      mac,
+      description: desc,
+      ini,
+      pri,
+      sec,
+    });
+
+    toast(res.message || 'Permisos de impresora actualizados', 'success');
+    closeModal('printer-modal-overlay');
+    await loadPrinterPermissions();
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error', 5000);
+  } finally {
+    saveBtn.disabled = false;
+    saveText.textContent = macInput.disabled ? 'Actualizar Accesos' : 'Guardar Accesos';
+    spinner.classList.add('hidden');
+  }
+}
+
+function openPrinterDeleteModal(mac) {
+  const dev = State.printers.find((p) => p.mac.toLowerCase() === mac.toLowerCase());
+  State.pendingPrinterDelete = mac;
+  setText('printer-delete-desc', dev?.description ? `${dev.description} (${mac})` : mac);
+  setText('printer-delete-mac', mac);
+  openModal('printer-delete-overlay');
+}
+
+async function confirmPrinterDelete() {
+  const mac = State.pendingPrinterDelete;
+  if (!mac) return;
+
+  const btn = $('printer-delete-confirm');
+  const text = $('printer-delete-confirm-text');
+  const spinner = $('printer-delete-spinner');
+
+  btn.disabled = true;
+  text.textContent = 'Revocando...';
+  spinner.classList.remove('hidden');
+
+  try {
+    const res = await API.del(`/printers/permissions/${encodeURIComponent(mac)}`);
+    toast(res.message || 'Accesos revocados exitosamente', 'success');
+    closeModal('printer-delete-overlay');
+    await loadPrinterPermissions();
+  } catch (err) {
+    toast(`Error al revocar accesos: ${err.message}`, 'error', 5000);
+  } finally {
+    btn.disabled = false;
+    text.textContent = 'Revocar Accesos';
+    spinner.classList.add('hidden');
+    State.pendingPrinterDelete = null;
+  }
+}
+
 // ─── Auditoría (Admin) ────────────────────────────────────────────────────────
 async function loadAuditUsers() {
   const select = $('audit-filter-user');
@@ -855,6 +1060,10 @@ function getAuditBadge(eventType, status) {
       return `<span class="badge-event badge-event-update">✏️ Modificación</span>`;
     case 'DELETE':
       return `<span class="badge-event badge-event-delete">🗑️ Baja Regla</span>`;
+    case 'PRINTER_PERM':
+      return `<span class="badge-event badge-event-create">🖨️ Permisos Impresora</span>`;
+    case 'PRINTER_REVOKE':
+      return `<span class="badge-event badge-event-delete">🖨️ Revocación Impresora</span>`;
     default:
       return `<span class="badge-event">${escapeHtml(eventType)}</span>`;
   }
@@ -1075,11 +1284,53 @@ function initEvents() {
     State.auditDebounce = setTimeout(loadAuditLogs, 250);
   });
 
+  // Control de Acceso a Impresoras
+  $('add-printer-perm-btn')?.addEventListener('click', () => openPrinterModal());
+  $('printer-refresh-btn')?.addEventListener('click', loadPrinterPermissions);
+  $('printer-search-input')?.addEventListener('input', (e) => {
+    clearTimeout(State.printerDebounce);
+    State.printerDebounce = setTimeout(() => handlePrinterSearch(e.target.value), 200);
+  });
+
+  // Delegación de eventos en la tabla de impresoras
+  $('printers-tbody')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-printer-action]');
+    if (!btn) return;
+    const action = btn.dataset.printerAction;
+    const mac = btn.dataset.mac;
+    if (action === 'edit') openPrinterModal(mac);
+    else if (action === 'delete') openPrinterDeleteModal(mac);
+  });
+
+  // Modales de Impresoras
+  $('printer-modal-close')?.addEventListener('click', () => closeModal('printer-modal-overlay'));
+  $('printer-modal-cancel')?.addEventListener('click', () => closeModal('printer-modal-overlay'));
+  $('printer-modal-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('printer-modal-overlay')) closeModal('printer-modal-overlay');
+  });
+  $('printer-modal-save')?.addEventListener('click', savePrinterPermission);
+
+  $('printer-delete-close')?.addEventListener('click', () => closeModal('printer-delete-overlay'));
+  $('printer-delete-cancel')?.addEventListener('click', () => closeModal('printer-delete-overlay'));
+  $('printer-delete-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('printer-delete-overlay')) closeModal('printer-delete-overlay');
+  });
+  $('printer-delete-confirm')?.addEventListener('click', confirmPrinterDelete);
+
+  // Auto-formato de MAC en modal de impresoras
+  $('printer-form-mac')?.addEventListener('input', formatMacInput);
+  $('printer-form-mac')?.addEventListener('paste', handleMacPaste);
+  $('printer-form-mac')?.addEventListener('blur', (e) => {
+    e.target.value = normalizeMac(e.target.value);
+  });
+
   // Keyboard: Escape closes modals
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       closeModal('modal-overlay');
       closeModal('delete-overlay');
+      closeModal('printer-modal-overlay');
+      closeModal('printer-delete-overlay');
     }
   });
 }
@@ -1090,13 +1341,14 @@ async function init() {
 
   // Load user info and parallel data
   await loadUser();
-  await Promise.all([loadFortiStatus(), loadLeases(), loadStats()]);
+  await Promise.all([loadFortiStatus(), loadLeases(), loadStats(), loadPrinterPermissions()]);
 
   // Auto-refresh every 60 seconds
   setInterval(() => {
     loadLeases();
     loadStats();
     loadFortiStatus();
+    if (State.currentView === 'printers') loadPrinterPermissions();
   }, 60_000);
 }
 
@@ -1104,6 +1356,8 @@ async function init() {
 window.openEditModal = openEditModal;
 window.openDeleteModal = openDeleteModal;
 window.openAddModal = openAddModal;
+window.openPrinterModal = openPrinterModal;
+window.openPrinterDeleteModal = openPrinterDeleteModal;
 window.quickReserve = quickReserve;
 window.refreshAll = refreshAll;
 window.exportCSV = exportCSV;
