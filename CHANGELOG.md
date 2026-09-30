@@ -24,6 +24,8 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
   - Tarjetas de estado con cantidad de dispositivos autorizados por cada nivel.
   - Tabla dinámica con búsqueda instantánea, badges de estado por VLAN, modal de asignación con switches por nivel y auto-formato de dirección MAC.
   - **Buscador y Selector de Dispositivos Existentes:** En el modal de asignación se agregó un buscador interactivo con auto-completado que consulta tanto los arrendamientos DHCP (VLAN 170) como los objetos address existentes en el firewall, permitiendo seleccionar con 1 clic la MAC y descripción sin tipeo manual.
+  - **Soporte de Objetos Multi-MAC:** En objetos de firewall creados con múltiples direcciones MAC, el backend desglosa e indexa cada una de las MACs asociadas individualmente para búsqueda, asignación y auditoría consistente.
+  - **Modal Responsive con Footer Fijo:** Se reestructuró el layout del modal mediante Flexbox (`flex-direction: column; overflow: hidden`) asegurando que el botón *"Guardar Accesos"* permanezca siempre visible en pantalla sin necesidad de escrolear, delegando el scroll interno al cuerpo del formulario (`.modal-body`).
   - **Salida Mejorada en Auditoría:** Desglose visual de accesos autorizados (`Inicial: Sí | Primaria: No...`) y etiquetas detalladas en la columna de Recurso y Detalle para operaciones sobre impresoras (`PRINTER_PERM` y `PRINTER_REVOKE`).
 
 ---

@@ -920,32 +920,37 @@ async def get_printer_permissions():
         except Exception:
             obj_data = None
 
-        mac = ""
+        macs = []
         description = ""
         if obj_data:
             raw_mac = obj_data.get("macaddr")
-            if isinstance(raw_mac, list) and len(raw_mac) > 0:
-                first = raw_mac[0]
-                mac = (first.get("macaddr") if isinstance(first, dict) else str(first)).lower()
-            elif isinstance(raw_mac, str):
-                mac = raw_mac.lower()
+            if isinstance(raw_mac, list):
+                for item in raw_mac:
+                    val = (item.get("macaddr") if isinstance(item, dict) else str(item)).strip().lower()
+                    if val:
+                        macs.append(val)
+            elif isinstance(raw_mac, str) and raw_mac.strip():
+                macs.append(raw_mac.strip().lower())
             description = obj_data.get("comment", "")
         
         # Si el objeto no traía macaddr, deducirlo del nombre MAC_AABBCCDDEEFF
-        if not mac and obj_name.startswith("MAC_") and len(obj_name) == 16:
+        if not macs and obj_name.startswith("MAC_") and len(obj_name) == 16:
             raw_hex = obj_name[4:].lower()
-            mac = ":".join(raw_hex[i:i+2] for i in range(0, 12, 2))
+            macs.append(":".join(raw_hex[i:i+2] for i in range(0, 12, 2)))
+
+        mac = ", ".join(macs) if macs else obj_name
 
         # Enriquecer descripción con DHCP si no tenía comentario propio
-        clean_mac_key = mac.lower() if mac else ""
-        dhcp_match = dhcp_map.get(clean_mac_key)
+        first_mac = macs[0] if macs else ""
+        dhcp_match = dhcp_map.get(first_mac) if first_mac else None
         ip_assigned = dhcp_match.get("ip") if dhcp_match else ""
         if not description and dhcp_match and dhcp_match.get("description"):
             description = dhcp_match.get("description")
 
         devices.append({
             "object_name": obj_name,
-            "mac": mac or obj_name,
+            "mac": mac,
+            "mac_list": macs,
             "ip": ip_assigned or "",
             "description": description or "",
             "ini": obj_name in group_members.get("ini", []),
@@ -1006,30 +1011,31 @@ async def get_printer_candidates(q: Optional[str] = Query(None, description="Bú
                 addr_type = addr.get("type", "")
                 comment = addr.get("comment", "")
 
-                mac = ""
                 raw_mac = addr.get("macaddr")
-                if isinstance(raw_mac, list) and len(raw_mac) > 0:
-                    first = raw_mac[0]
-                    mac = (first.get("macaddr") if isinstance(first, dict) else str(first)).strip().lower()
-                elif isinstance(raw_mac, str) and raw_mac:
-                    mac = raw_mac.strip().lower()
+                mac_list = []
+                if isinstance(raw_mac, list):
+                    for item in raw_mac:
+                        val = (item.get("macaddr") if isinstance(item, dict) else str(item)).strip().lower()
+                        if val:
+                            mac_list.append(val)
+                elif isinstance(raw_mac, str) and raw_mac.strip():
+                    mac_list.append(raw_mac.strip().lower())
 
                 # Si no tiene macaddr pero el nombre es MAC_...
-                if not mac and obj_name.startswith("MAC_") and len(obj_name) == 16:
+                if not mac_list and obj_name.startswith("MAC_") and len(obj_name) == 16:
                     raw_hex = obj_name[4:].lower()
-                    mac = ":".join(raw_hex[i:i+2] for i in range(0, 12, 2))
+                    mac_list.append(":".join(raw_hex[i:i+2] for i in range(0, 12, 2)))
 
-                if mac:
-                    if mac in candidates:
-                        # Completar descripción si faltaba
-                        if not candidates[mac]["description"] and comment:
-                            candidates[mac]["description"] = comment
+                for m in mac_list:
+                    if m in candidates:
+                        if not candidates[m]["description"] and comment:
+                            candidates[m]["description"] = comment
                     else:
-                        candidates[mac] = {
-                            "mac": mac,
-                            "description": comment or "",
+                        candidates[m] = {
+                            "mac": m,
+                            "description": comment or (f"Objeto {obj_name}" if len(mac_list) > 1 else ""),
                             "ip": "",
-                            "source": "Objeto Firewall",
+                            "source": "Objeto Firewall" + (f" ({obj_name})" if len(mac_list) > 1 else ""),
                             "object_name": obj_name,
                         }
     except Exception as e:
@@ -1143,15 +1149,18 @@ async def revoke_printer_permissions(mac: str, request: Request):
     - Elimina el objeto firewall address asociado en FortiOS.
     """
     actor = _extract_actor(request)
-    clean_mac = mac.strip().lower().replace("-", ":").replace(".", ":")
-    obj_name = _mac_to_object_name(clean_mac)
+    raw_target = mac.strip()
+    clean_mac = raw_target.lower().replace("-", ":").replace(".", ":")
+    obj_name = raw_target if raw_target.startswith("MAC_") else _mac_to_object_name(clean_mac)
 
     # 1. Remover de los 3 grupos
     for key, info in PRINTER_GROUPS.items():
         group_name = info["group_name"]
         current_members = await _get_address_group_members(group_name)
-        if obj_name in current_members:
-            current_members = [m for m in current_members if m != obj_name]
+        # Buscar por obj_name o por nombre exacto si fue pasado
+        matched = [m for m in current_members if m == obj_name or m == raw_target]
+        if matched:
+            current_members = [m for m in current_members if m not in matched]
             await _set_group_members(group_name, current_members)
 
     # 2. Eliminar el objeto firewall address
