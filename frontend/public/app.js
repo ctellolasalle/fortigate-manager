@@ -18,6 +18,8 @@ const State = {
   fortiStatus: null,
   currentView: 'dashboard',
   sort: { col: 'ip', dir: 'asc' },
+  actionFilter: 'ALL',
+  selectedLeases: new Set(),
   searchDebounce: null,
   printerDebounce: null,
   candidateDebounce: null,
@@ -231,13 +233,15 @@ async function loadLeases() {
   try {
     const data = await API.get('/dhcp/reservations');
     State.leases = data.reservations || [];
-    State.filteredLeases = [...State.leases];
+    // Limpiar IDs seleccionados que ya no existan o que ya no sean 'reserved'
+    const validReservedIds = new Set(
+      State.leases
+        .filter((l) => (l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign')) === 'reserved')
+        .map((l) => l.id)
+    );
+    State.selectedLeases = new Set([...State.selectedLeases].filter((id) => validReservedIds.has(id)));
 
-    // Badge en sidebar
-    setText('leases-count', State.leases.length);
-
-    applySort();
-    renderLeases();
+    applyLeaseFilters();
     renderRecentLeases(recentTbody);
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-row">❌ Error: ${err.message}</td></tr>`;
@@ -253,7 +257,8 @@ function renderLeases() {
   setText('record-count', `${leases.length} registros`);
 
   if (!leases.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-row">No hay arrendamientos que coincidan con la búsqueda</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-row">No hay arrendamientos que coincidan con la búsqueda y filtro</td></tr>`;
+    updateBulkActionBar();
     return;
   }
 
@@ -268,8 +273,15 @@ function renderLeases() {
       ? l.ip
       : `<span style="color:var(--text-secondary);font-style:italic">Dynamic (Pool)</span>`;
 
+    const isChecked = State.selectedLeases.has(l.id);
+    // Solo permitir checkbox en reglas de tipo Reserve IP (para pasarlas a Assign IP)
+    const checkCell = isReserved
+      ? `<input type="checkbox" class="lease-check-input lease-item-check" data-id="${l.id}" ${isChecked ? 'checked' : ''}>`
+      : `<span style="color:var(--border-color);font-size:0.9rem;" title="Ya es dinámica">—</span>`;
+
     return `
-      <tr class="lease-row" data-id="${l.id}">
+      <tr class="lease-row ${isChecked ? 'selected' : ''}" data-id="${l.id}">
+        <td style="text-align: center;">${checkCell}</td>
         <td class="td-id">
           <span class="cell-label-mobile">#</span><span class="id-number">${l.id}</span>
         </td>
@@ -296,60 +308,88 @@ function renderLeases() {
       </tr>
     `;
   }).join('');
+
+  updateBulkActionBar();
 }
 
-function renderRecentLeases(tbody) {
-  if (!tbody) return;
-  const recent = [...State.leases].slice(0, 8);
+function updateBulkActionBar() {
+  const bar = $('bulk-action-bar');
+  const countText = $('bulk-selected-count');
+  const thSelectAll = $('th-select-all');
 
-  if (!recent.length) {
-    tbody.innerHTML = `<tr><td colspan="3" class="empty-row">No hay arrendamientos</td></tr>`;
-    return;
+  const count = State.selectedLeases.size;
+
+  if (count > 0) {
+    if (bar) bar.classList.remove('hidden');
+    if (countText) countText.textContent = `${count} regla${count > 1 ? 's' : ''} seleccionada${count > 1 ? 's' : ''} para convertir`;
+  } else {
+    if (bar) bar.classList.add('hidden');
   }
 
-  tbody.innerHTML = recent.map((l) => `
-    <tr>
-      <td class="td-desc">${escapeHtml(l.description) || '—'}</td>
-      <td class="td-mac">${l.mac}</td>
-      <td class="td-ip">${l.ip}</td>
-    </tr>
-  `).join('');
+  // Actualizar checkbox maestro del encabezado
+  if (thSelectAll) {
+    const selectable = State.filteredLeases.filter((l) => {
+      const act = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign-ip');
+      return act === 'reserved';
+    });
+    if (!selectable.length) {
+      thSelectAll.checked = false;
+      thSelectAll.disabled = true;
+    } else {
+      thSelectAll.disabled = false;
+      thSelectAll.checked = selectable.every((l) => State.selectedLeases.has(l.id));
+    }
+  }
 }
 
-// ─── Search ────────────────────────────────────────────────────────────────────
-function handleSearch(query) {
-  const q = query.trim().toLowerCase();
-  if (!q) {
-    State.filteredLeases = [...State.leases];
-  } else {
-    // Normalizar término de búsqueda para comparar en varios formatos
-    const qClean = q.replace(/[^0-9a-f]/g, '');
-    const qColon = q.replace(/-/g, ':');
-    const qHyphen = q.replace(/:/g, '-');
+function applyLeaseFilters() {
+  const searchVal = ($('search-input')?.value || '').trim().toLowerCase();
+  const actionVal = State.actionFilter || 'ALL';
 
-    State.filteredLeases = State.leases.filter((l) => {
+  let list = [...State.leases];
+
+  // Filtro por Acción
+  if (actionVal !== 'ALL') {
+    list = list.filter((l) => {
+      const act = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign');
+      return actionVal === 'reserved' ? act === 'reserved' : (act === 'assign' || act === 'assign-ip');
+    });
+  }
+
+  // Filtro por Búsqueda (Texto)
+  if (searchVal) {
+    const qClean = searchVal.replace(/[^0-9a-f]/g, '');
+    const qColon = searchVal.replace(/-/g, ':');
+    const qHyphen = searchVal.replace(/:/g, '-');
+
+    list = list.filter((l) => {
       const mac = (l.mac || '').toLowerCase();
       const macPlain = mac.replace(/[^0-9a-f]/g, '');
       const macHyphen = mac.replace(/:/g, '-');
       const ip = (l.ip || '').toLowerCase();
       const desc = (l.description || '').toLowerCase();
 
-      // Búsqueda inteligente de MAC (admite '00:15:...', '00-15-...', '00155daea3a0' o fragmentos)
       const matchMac =
-        mac.includes(q) ||
+        mac.includes(searchVal) ||
         mac.includes(qColon) ||
-        macHyphen.includes(q) ||
+        macHyphen.includes(searchVal) ||
         macHyphen.includes(qHyphen) ||
         (qClean.length >= 2 && macPlain.includes(qClean));
 
-      const matchIp = ip.includes(q);
-      const matchDesc = desc.includes(q);
+      const matchIp = ip.includes(searchVal);
+      const matchDesc = desc.includes(searchVal);
 
       return matchMac || matchIp || matchDesc;
     });
   }
+
+  State.filteredLeases = list;
   applySort();
   renderLeases();
+}
+
+function handleSearch(query) {
+  applyLeaseFilters();
 }
 
 // ─── Sort ──────────────────────────────────────────────────────────────────────
@@ -673,7 +713,67 @@ async function confirmDelete() {
   }
 }
 
-// ─── Logout ────────────────────────────────────────────────────────────────────
+// ─── Bulk Convert to Assign IP ───────────────────────────────────────────────
+function openBulkConvertModal() {
+  const count = State.selectedLeases.size;
+  if (!count) {
+    toast('No hay reglas seleccionadas para convertir', 'warning');
+    return;
+  }
+
+  setText('bulk-convert-count', count);
+  const input = $('bulk-confirm-input');
+  if (input) {
+    input.value = '';
+    input.classList.remove('error');
+  }
+  setText('err-bulk-confirm', '');
+
+  const confirmBtn = $('bulk-convert-confirm-btn');
+  if (confirmBtn) confirmBtn.disabled = true;
+
+  openModal('bulk-convert-overlay');
+  setTimeout(() => input?.focus(), 150);
+}
+
+async function confirmBulkConvert() {
+  const count = State.selectedLeases.size;
+  if (!count) return;
+
+  const input = $('bulk-confirm-input');
+  const val = (input?.value || '').trim();
+  if (val !== 'CONVERTIR') {
+    setError('bulk-confirm-input', 'err-bulk-confirm', 'Escribe exactamente "CONVERTIR" en mayúsculas para continuar.');
+    input?.focus();
+    return;
+  }
+  clearError('bulk-confirm-input', 'err-bulk-confirm');
+
+  const btn = $('bulk-convert-confirm-btn');
+  const txt = $('bulk-convert-confirm-text');
+  const spinner = $('bulk-convert-spinner');
+
+  btn.disabled = true;
+  txt.textContent = 'Convirtiendo...';
+  spinner.classList.remove('hidden');
+
+  try {
+    const ids = Array.from(State.selectedLeases);
+    const res = await API.post('/dhcp/reservations/bulk-convert-to-assign', { ids });
+
+    toast(res.message || `✅ Se convirtieron ${count} reglas a Assign IP exitosamente`, 'success', 4000);
+    closeModal('bulk-convert-overlay');
+    State.selectedLeases.clear();
+
+    await Promise.all([loadLeases(), loadStats()]);
+  } catch (err) {
+    toast(`❌ Error en conversión en lote: ${err.message}`, 'error', 6000);
+  } finally {
+    btn.disabled = false;
+    txt.textContent = 'Convertir a Assign IP';
+    spinner.classList.add('hidden');
+  }
+}
 async function logout() {
   try {
     await fetch('/auth/logout', { method: 'POST', credentials: 'same-origin' });
@@ -1307,12 +1407,77 @@ function initEvents() {
   // Delegación de eventos para la tabla de arrendamientos (evita violaciones de CSP)
   $('leases-tbody')?.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-action]');
-    if (!btn) return;
-    const action = btn.dataset.action;
-    const id = parseInt(btn.dataset.id, 10);
-    if (action === 'edit') openEditModal(id);
-    else if (action === 'delete') openDeleteModal(id);
+    if (btn) {
+      const action = btn.dataset.action;
+      const id = parseInt(btn.dataset.id, 10);
+      if (action === 'edit') openEditModal(id);
+      else if (action === 'delete') openDeleteModal(id);
+      return;
+    }
+
+    // Manejo de checkbox de selección múltiple por fila
+    const check = e.target.closest('.lease-item-check');
+    if (check) {
+      const id = parseInt(check.dataset.id, 10);
+      if (check.checked) {
+        State.selectedLeases.add(id);
+      } else {
+        State.selectedLeases.delete(id);
+      }
+      const row = check.closest('tr');
+      if (row) row.classList.toggle('selected', check.checked);
+      updateBulkActionBar();
+    }
   });
+
+  // Filtro por tipo de Acción (Reserve IP / Assign IP / ALL)
+  $('filter-action')?.addEventListener('change', (e) => {
+    State.actionFilter = e.target.value;
+    applyLeaseFilters();
+  });
+
+  // Checkbox de selección maestro (th-select-all)
+  $('th-select-all')?.addEventListener('change', (e) => {
+    const checked = e.target.checked;
+    const selectable = State.filteredLeases.filter((l) => {
+      const act = l.action || (l.ip && l.ip !== '0.0.0.0' ? 'reserved' : 'assign-ip');
+      return act === 'reserved';
+    });
+
+    selectable.forEach((l) => {
+      if (checked) {
+        State.selectedLeases.add(l.id);
+      } else {
+        State.selectedLeases.delete(l.id);
+      }
+    });
+
+    renderLeases();
+  });
+
+  // Botones de la barra de acciones en lote
+  $('bulk-convert-btn')?.addEventListener('click', openBulkConvertModal);
+  $('bulk-cancel-btn')?.addEventListener('click', () => {
+    State.selectedLeases.clear();
+    renderLeases();
+  });
+
+  // Modal de confirmación en lote
+  $('bulk-convert-close')?.addEventListener('click', () => closeModal('bulk-convert-overlay'));
+  $('bulk-convert-cancel')?.addEventListener('click', () => closeModal('bulk-convert-overlay'));
+  $('bulk-convert-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('bulk-convert-overlay')) closeModal('bulk-convert-overlay');
+  });
+
+  // Validación de texto de confirmación "CONVERTIR"
+  $('bulk-confirm-input')?.addEventListener('input', (e) => {
+    const val = e.target.value.trim();
+    const btn = $('bulk-convert-confirm-btn');
+    if (btn) btn.disabled = (val !== 'CONVERTIR');
+    if (val === 'CONVERTIR') clearError('bulk-confirm-input', 'err-bulk-confirm');
+  });
+
+  $('bulk-convert-confirm-btn')?.addEventListener('click', confirmBulkConvert);
 
   // Delegación de eventos para la tabla de IPs disponibles
   $('available-tbody')?.addEventListener('click', (e) => {

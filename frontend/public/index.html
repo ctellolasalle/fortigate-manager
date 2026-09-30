@@ -35,10 +35,6 @@
         <span>Arrendamientos</span>
         <span class="nav-badge" id="leases-count">—</span>
       </a>
-      <a href="#" class="nav-item" data-view="available" id="nav-available">
-        <span class="nav-icon">🌐</span>
-        <span>IPs Disponibles</span>
-      </a>
       <a href="#" class="nav-item" data-view="printers" id="nav-printers">
         <span class="nav-icon">🖨️</span>
         <span>Impresoras</span>
@@ -185,7 +181,7 @@
         <button class="btn btn-primary" id="add-lease-btn">+ Nueva Reserva</button>
       </div>
 
-      <!-- Toolbar -->
+      <!-- Toolbar con filtro por Acción y barra de conversión en lote -->
       <div class="toolbar">
         <div class="search-wrap">
           <span class="search-icon">🔍</span>
@@ -198,9 +194,34 @@
           >
           <button class="search-clear" id="search-clear" title="Limpiar">✕</button>
         </div>
+
+        <!-- Filtro por tipo de Acción -->
+        <div class="filter-action-wrap">
+          <label for="filter-action" class="filter-label">Acción:</label>
+          <select id="filter-action" class="form-input filter-select">
+            <option value="ALL">Todas las acciones</option>
+            <option value="reserved">Reserve IP (Fijas)</option>
+            <option value="assign">Assign IP (Dinámicas)</option>
+          </select>
+        </div>
+
         <div class="toolbar-actions">
           <button class="btn btn-ghost btn-sm" id="export-csv-btn" title="Exportar CSV">⬇ CSV</button>
           <span class="record-count" id="record-count">— registros</span>
+        </div>
+      </div>
+
+      <!-- Barra de Acciones en Lote (Bulk Actions) -->
+      <div class="bulk-action-bar hidden" id="bulk-action-bar">
+        <div class="bulk-info">
+          <span class="bulk-icon">☑️</span>
+          <span class="bulk-text" id="bulk-selected-count">0 reglas seleccionadas</span>
+        </div>
+        <div class="bulk-buttons">
+          <button class="btn btn-warning btn-sm" id="bulk-convert-btn">
+            <span>⚡</span> Convertir seleccionadas a "Assign IP"
+          </button>
+          <button class="btn btn-ghost btn-sm" id="bulk-cancel-btn">Cancelar</button>
         </div>
       </div>
 
@@ -210,6 +231,9 @@
           <table class="table" id="leases-table">
             <thead>
               <tr>
+                <th style="width: 44px; text-align: center;">
+                  <input type="checkbox" id="th-select-all" class="lease-check-input" title="Seleccionar todas las visibles con Reserve IP">
+                </th>
                 <th class="th-sortable" data-col="id"># <span class="sort-icon">↕</span></th>
                 <th class="th-sortable" data-col="description">Descripción <span class="sort-icon">↕</span></th>
                 <th>MAC</th>
@@ -219,7 +243,7 @@
               </tr>
             </thead>
             <tbody id="leases-tbody">
-              <tr><td colspan="6" class="empty-row"><div class="loading-spinner"></div> Cargando arrendamientos...</td></tr>
+              <tr><td colspan="7" class="empty-row"><div class="loading-spinner"></div> Cargando arrendamientos...</td></tr>
             </tbody>
           </table>
         </div>
@@ -643,6 +667,40 @@
         <button class="btn btn-danger" id="delete-confirm">
           <span id="delete-confirm-text">Eliminar</span>
           <div class="btn-spinner hidden" id="delete-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Confirmar conversión en lote a Assign IP ───────────────── -->
+  <div class="modal-overlay" id="bulk-convert-overlay" role="dialog" aria-modal="true" aria-labelledby="bulk-convert-title">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title" id="bulk-convert-title">⚡ Confirmar Conversión en Lote</h2>
+        <button class="modal-close" id="bulk-convert-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>Estás a punto de convertir <strong id="bulk-convert-count">0</strong> reglas de tipo <strong>Reserve IP (Fijas)</strong> a <strong>Assign IP (Dinámicas por Pool)</strong>.</p>
+        <div class="notice-box notice-warning" style="margin: 0.85rem 0;">
+          ⚠️ <strong>Atención:</strong> Las direcciones IP estáticas asignadas serán liberadas y los dispositivos pasarán a recibir IP dinámica por DHCP.
+        </div>
+        <div class="form-group" style="margin-top: 1rem;">
+          <label class="form-label" for="bulk-confirm-input">Para confirmar, escribe <strong style="color:var(--primary-color);">CONVERTIR</strong>:</label>
+          <input
+            type="text"
+            class="form-input"
+            id="bulk-confirm-input"
+            placeholder="CONVERTIR"
+            autocomplete="off"
+          >
+          <span class="form-error" id="err-bulk-confirm"></span>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="bulk-convert-cancel">Cancelar</button>
+        <button class="btn btn-warning" id="bulk-convert-confirm-btn" disabled>
+          <span id="bulk-convert-confirm-text">Convertir a Assign IP</span>
+          <div class="btn-spinner hidden" id="bulk-convert-spinner"></div>
         </button>
       </div>
     </div>

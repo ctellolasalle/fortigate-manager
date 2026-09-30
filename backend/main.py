@@ -177,6 +177,10 @@ class DhcpReservationUpdate(BaseModel):
         return v
 
 
+class BulkConvertToAssignIn(BaseModel):
+    ids: list[int]
+
+
 class AuditEventIn(BaseModel):
     event_type: str
     user_email: Optional[str] = None
@@ -623,6 +627,74 @@ async def update_reservation(entry_id: int, update: DhcpReservationUpdate, reque
         "success": True,
         "message": f"Regla ID {entry_id} actualizada",
         "entry": _normalize_reserved([target])[0],
+    }
+
+
+@app.post("/dhcp/reservations/bulk-convert-to-assign")
+async def bulk_convert_to_assign(payload: BulkConvertToAssignIn, request: Request):
+    """
+    Convierte en lote múltiples reglas con acción 'Reserve IP' a 'Assign IP' (Dinámica por pool).
+    Elimina la IP asignada y reconfigura las entradas seleccionadas.
+    """
+    target_ids = set(payload.ids)
+    if not target_ids:
+        raise HTTPException(status_code=400, detail="Debe especificar al menos un ID de regla")
+
+    server = await _get_dhcp_server()
+    entries: list = server.get("reserved-address", [])
+
+    matched = [e for e in entries if e.get("id") in target_ids]
+    if not matched:
+        raise HTTPException(status_code=404, detail="No se encontraron las reglas seleccionadas")
+
+    actor = _extract_actor(request)
+    converted_count = 0
+    updated_macs = []
+
+    # Actualizar cada entrada en la lista completa
+    for e in entries:
+        if e.get("id") in target_ids:
+            old_ip = (e.get("ip") or "").strip()
+            old_action = (e.get("action") or "").strip().lower()
+            e["action"] = "assign-ip"
+            e["ip"] = ""
+            converted_count += 1
+            updated_macs.append(e.get("mac", ""))
+
+            # Auditoría por cada elemento convertido
+            log_event(
+                event_type="UPDATE",
+                user_email=actor["email"],
+                user_name=actor["name"],
+                action_status="SUCCESS",
+                target_mac=e.get("mac", ""),
+                target_ip="Dinámica (Pool)",
+                description=e.get("description", ""),
+                details={
+                    "id": e.get("id"),
+                    "previous": {
+                        "action": old_action,
+                        "ip": old_ip or "Dinámica (Pool)",
+                        "description": e.get("description", ""),
+                    },
+                    "updated": {
+                        "action": "assign",
+                        "ip": "Dinámica (Pool)",
+                        "description": e.get("description", ""),
+                    },
+                    "bulk": True,
+                },
+                client_ip=actor["ip"],
+            )
+
+    # Guardar la subtabla limpia en FortiOS
+    await _save_reserved_addresses(entries)
+
+    return {
+        "success": True,
+        "message": f"Se convirtieron {converted_count} reglas a Assign IP exitosamente",
+        "converted_count": converted_count,
+        "converted_ids": list(target_ids),
     }
 
 

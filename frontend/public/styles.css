@@ -694,6 +694,86 @@ button {
   white-space: nowrap;
 }
 
+/* Filtro por Acción en Toolbar */
+.filter-action-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.filter-select {
+  padding: 0.55rem 0.85rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  background: var(--surface-color);
+  color: var(--text-primary);
+  min-width: 170px;
+  cursor: pointer;
+}
+
+/* Barra Flotante de Acciones en Lote (Bulk Actions) */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.15rem;
+  margin-bottom: 1rem;
+  background: #fffbeb;
+  border: 1.5px solid #fde68a;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  animation: slideDown 0.2s ease;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.bulk-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #92400e;
+}
+
+.bulk-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lease-check-input {
+  width: 1.15rem;
+  height: 1.15rem;
+  accent-color: #2563eb;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.lease-row.selected {
+  background-color: rgba(37, 99, 235, 0.06) !important;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ─── Tablas ──────────────────────────────────────────────────────────────── */
 .table-wrap {
   overflow-x: auto;
@@ -1554,11 +1634,20 @@ button {
     width: 100%;
   }
 
+  /* Checkbox en móvil */
+  .lease-row td:first-child {
+    position: absolute;
+    top: 0.85rem;
+    left: 0.9rem;
+    width: auto;
+    z-index: 2;
+  }
+
   /* Cabecera de la tarjeta: ID + Descripción y a la derecha el Badge */
   .lease-row .td-id {
     position: absolute;
     top: 0.9rem;
-    left: 1rem;
+    left: 2.8rem;
     width: auto;
     font-size: 0.75rem;
     color: var(--text-secondary);

@@ -26,6 +26,13 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
   - **Buscador y Selector de Dispositivos Existentes:** En el modal de asignación se agregó un buscador interactivo con auto-completado que consulta tanto los arrendamientos DHCP (VLAN 170) como los objetos address existentes en el firewall, permitiendo seleccionar con 1 clic la MAC y descripción sin tipeo manual.
   - **Soporte de Objetos Multi-MAC:** En objetos de firewall creados con múltiples direcciones MAC, el backend desglosa e indexa cada una de las MACs asociadas individualmente para búsqueda, asignación y auditoría consistente.
   - **Modal Responsive con Footer Fijo:** Se reestructuró el layout del modal mediante Flexbox (`flex-direction: column; overflow: hidden`) asegurando que el botón *"Guardar Accesos"* permanezca siempre visible en pantalla sin necesidad de escrolear, delegando el scroll interno al cuerpo del formulario (`.modal-body`).
+  - **Limpieza de Navegación:** Se retiró el botón *"IPs Disponibles"* de la barra lateral de navegación para simplificar el menú.
+  - **Filtro por Tipo de Acción en Arrendamientos:** Se incorporó un selector desplegable en la barra de herramientas para filtrar instantáneamente entre *"Todas las acciones"*, *"Reserve IP (Fijas)"* y *"Assign IP (Dinámicas)"*.
+  - **Selección Múltiple y Conversión en Lote:**
+    - Se agregaron casillas de verificación (checkboxes) por fila y selección masiva en cabecera para reglas fijas (`Reserve IP`).
+    - Barra flotante contextual con conteo de elementos y acción rápida para pasarlos a asignación dinámica (`Assign IP`).
+    - **Validación de Seguridad:** Modal con confirmación estricta por tipeo de la palabra `CONVERTIR` antes de aplicar los cambios en el firewall.
+    - **Endpoint Backend:** `POST /dhcp/reservations/bulk-convert-to-assign` con auditoría individualizada de cada cambio.
   - **Salida Mejorada en Auditoría:** Desglose visual de accesos autorizados (`Inicial: Sí | Primaria: No...`) y etiquetas detalladas en la columna de Recurso y Detalle para operaciones sobre impresoras (`PRINTER_PERM` y `PRINTER_REVOKE`).
 
 ---
