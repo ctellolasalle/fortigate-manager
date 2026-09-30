@@ -828,30 +828,50 @@ async def _get_address_object(obj_name: str) -> Optional[dict]:
         return None
 
 
-async def _ensure_address_object(obj_name: str, mac: str, comment: str = "") -> bool:
-    """Crea o actualiza el objeto firewall address de tipo MAC en FortiOS si es necesario."""
-    payload = {
-        "name": obj_name,
-        "type": "mac",
-        "macaddr": mac,
-        "comment": (comment or "").strip()[:255],
-    }
-
+async def _ensure_address_object(obj_name: str, mac: str, comment: str = "") -> tuple[bool, str]:
+    """
+    Crea o actualiza el objeto firewall address de tipo MAC en FortiOS.
+    En FortiOS API cmdb/firewall/address con type='mac', macaddr se puede enviar como string o array de dicts: [{"macaddr": mac}].
+    Retorna (success: bool, error_message: str).
+    """
     url = f"{FW_ADDRESS_URL}/{obj_name}"
+    comment_clean = (comment or "").strip()[:255]
     try:
         # Verificar si ya existe
         check = await http_client.get(url, headers=HEADERS)
         if check.status_code == 200:
-            # Actualizar comentario si cambió
-            await http_client.put(url, headers=HEADERS, json={"comment": payload["comment"]})
-            return True
-        else:
-            # Crear objeto
-            create_resp = await http_client.post(FW_ADDRESS_URL, headers=HEADERS, json=payload)
-            return create_resp.status_code in (200, 201)
+            if comment_clean:
+                await http_client.put(url, headers=HEADERS, json={"comment": comment_clean})
+            return True, ""
+        
+        # Probar payload con macaddr directo
+        payload = {
+            "name": obj_name,
+            "type": "mac",
+            "macaddr": [{"macaddr": mac}],
+            "comment": comment_clean,
+        }
+        create_resp = await http_client.post(FW_ADDRESS_URL, headers=HEADERS, json=payload)
+        
+        # Si el schema prefiere string plano:
+        if create_resp.status_code not in (200, 201):
+            payload_str = {
+                "name": obj_name,
+                "type": "mac",
+                "macaddr": mac,
+                "comment": comment_clean,
+            }
+            create_resp2 = await http_client.post(FW_ADDRESS_URL, headers=HEADERS, json=payload_str)
+            if create_resp2.status_code in (200, 201):
+                return True, ""
+            err_msg = create_resp2.text[:250]
+            print(f"[FortiGate API] Error creando objeto {obj_name} ({create_resp2.status_code}): {err_msg}")
+            return False, f"HTTP {create_resp2.status_code}: {err_msg}"
+
+        return True, ""
     except Exception as e:
-        print(f"[FortiGate API] Error asegurando objeto {obj_name}: {e}")
-        return False
+        print(f"[FortiGate API] Excepción asegurando objeto {obj_name}: {e}")
+        return False, str(e)
 
 
 async def _set_group_members(group_name: str, members: list) -> bool:
@@ -948,11 +968,11 @@ async def save_printer_permission(perm: PrinterPermissionIn, request: Request):
     obj_name = _mac_to_object_name(mac)
 
     # 1. Asegurar objeto MAC en firewall address
-    obj_ok = await _ensure_address_object(obj_name, mac, perm.description)
+    obj_ok, obj_err = await _ensure_address_object(obj_name, mac, perm.description)
     if not obj_ok:
         raise HTTPException(
             status_code=502,
-            detail=f"No se pudo crear o actualizar el objeto {obj_name} en el FortiGate"
+            detail=f"No se pudo crear o actualizar el objeto {obj_name} en el FortiGate: {obj_err}"
         )
 
     # 2. Sincronizar membresía en cada uno de los 3 grupos
