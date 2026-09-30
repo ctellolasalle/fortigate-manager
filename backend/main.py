@@ -905,27 +905,40 @@ async def get_printer_permissions():
         all_obj_names.update(mem_list)
 
     # 3. También buscar información de arrendamientos DHCP para enriquecer nombres/IPs
-    dhcp_server = await _get_dhcp_server()
-    dhcp_entries = dhcp_server.get("reserved-address", [])
-    dhcp_map = {e.get("mac", "").lower(): e for e in dhcp_entries if e.get("mac")}
+    dhcp_map = {}
+    try:
+        dhcp_server = await _get_dhcp_server()
+        dhcp_entries = dhcp_server.get("reserved-address", [])
+        dhcp_map = {e.get("mac", "").lower(): e for e in dhcp_entries if e.get("mac")}
+    except Exception as e:
+        print(f"[FortiGate API] Aviso: No se pudo obtener DHCP para enriquecer impresoras: {e}")
 
     devices = []
     for obj_name in sorted(all_obj_names):
-        obj_data = await _get_address_object(obj_name)
+        try:
+            obj_data = await _get_address_object(obj_name)
+        except Exception:
+            obj_data = None
+
         mac = ""
         description = ""
         if obj_data:
-            # En FortiOS macaddr suele venir formateado o en obj_data
-            mac = (obj_data.get("macaddr") or "").lower()
+            raw_mac = obj_data.get("macaddr")
+            if isinstance(raw_mac, list) and len(raw_mac) > 0:
+                first = raw_mac[0]
+                mac = (first.get("macaddr") if isinstance(first, dict) else str(first)).lower()
+            elif isinstance(raw_mac, str):
+                mac = raw_mac.lower()
             description = obj_data.get("comment", "")
         
-        # Si el objeto no traía macaddr, intentar deducirlo del nombre MAC_AABBCCDDEEFF
+        # Si el objeto no traía macaddr, deducirlo del nombre MAC_AABBCCDDEEFF
         if not mac and obj_name.startswith("MAC_") and len(obj_name) == 16:
             raw_hex = obj_name[4:].lower()
             mac = ":".join(raw_hex[i:i+2] for i in range(0, 12, 2))
 
         # Enriquecer descripción con DHCP si no tenía comentario propio
-        dhcp_match = dhcp_map.get(mac.lower())
+        clean_mac_key = mac.lower() if mac else ""
+        dhcp_match = dhcp_map.get(clean_mac_key)
         ip_assigned = dhcp_match.get("ip") if dhcp_match else ""
         if not description and dhcp_match and dhcp_match.get("description"):
             description = dhcp_match.get("description")
@@ -934,10 +947,10 @@ async def get_printer_permissions():
             "object_name": obj_name,
             "mac": mac or obj_name,
             "ip": ip_assigned or "",
-            "description": description,
-            "ini": obj_name in group_members["ini"],
-            "pri": obj_name in group_members["pri"],
-            "sec": obj_name in group_members["sec"],
+            "description": description or "",
+            "ini": obj_name in group_members.get("ini", []),
+            "pri": obj_name in group_members.get("pri", []),
+            "sec": obj_name in group_members.get("sec", []),
         })
 
     # Resumen de estadísticas por grupo
