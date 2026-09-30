@@ -2148,4 +2148,96 @@ button {
 .audit-printer-object {
   font-size: 0.73rem;
   color: var(--text-secondary);
-}
+}
+
+/* ─── Dropdown Buscador de Dispositivos Existentes (MAC) ───────────────────── */
+.printer-candidate-box {
+  position: relative;
+  width: 100%;
+}
+
+.printer-candidate-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border-color, #cbd5e1);
+  border-radius: var(--radius-md, 8px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 1050;
+}
+
+.printer-candidate-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.printer-candidate-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.9rem;
+  border-bottom: 1px solid var(--border-subtle, #f1f5f9);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.printer-candidate-item:last-child {
+  border-bottom: none;
+}
+
+.printer-candidate-item:hover,
+.printer-candidate-item.focused {
+  background-color: var(--bg-hover, #f8fafc);
+}
+
+.printer-cand-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.printer-cand-desc {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-primary, #0f172a);
+}
+
+.printer-cand-mac-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.printer-cand-mac {
+  color: var(--primary-color, #2563eb);
+  font-weight: 600;
+}
+
+.printer-cand-ip {
+  color: #0f766e;
+  font-weight: 500;
+}
+
+.printer-cand-source {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border: 1px solid rgba(100, 116, 139, 0.2);
+  white-space: nowrap;
+}
+
+.printer-candidate-empty {
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-secondary, #64748b);
+  font-style: italic;
+}
+

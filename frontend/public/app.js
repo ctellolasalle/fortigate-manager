@@ -20,6 +20,8 @@ const State = {
   sort: { col: 'ip', dir: 'asc' },
   searchDebounce: null,
   printerDebounce: null,
+  candidateDebounce: null,
+  printerCandidates: [],
   pendingDelete: null,
   pendingPrinterDelete: null,
   editingId: null,
@@ -850,6 +852,15 @@ function openPrinterModal(mac = null) {
   // Limpiar errores
   clearError('printer-form-mac', 'err-printer-mac');
 
+  // Controlar visibilidad del selector de candidatos existentes (solo al agregar)
+  const candidateGroup = $('group-printer-candidate-selector');
+  if (candidateGroup) {
+    candidateGroup.style.display = isEdit ? 'none' : 'block';
+  }
+  const candidateSearch = $('printer-candidate-search');
+  if (candidateSearch) candidateSearch.value = '';
+  closePrinterCandidateDropdown();
+
   if (isEdit) {
     const dev = State.printers.find((p) => p.mac.toLowerCase() === mac.toLowerCase());
     $('printer-form-mac').value = dev?.mac || mac;
@@ -865,9 +876,88 @@ function openPrinterModal(mac = null) {
     $('printer-check-ini').checked = false;
     $('printer-check-pri').checked = false;
     $('printer-check-sec').checked = false;
+    // Cargar lista de candidatos disponibles desde backend
+    loadPrinterCandidates('');
   }
 
   openModal('printer-modal-overlay');
+}
+
+// ─── Selector / Buscador de Dispositivos Existentes ────────────────────────────
+async function loadPrinterCandidates(query = '') {
+  try {
+    const qParam = query ? `?q=${encodeURIComponent(query)}` : '';
+    const res = await API.get(`/printers/candidates${qParam}`);
+    State.printerCandidates = res.candidates || [];
+    renderPrinterCandidateDropdown();
+  } catch (err) {
+    console.warn('[Printer Candidates] Error buscando candidatos:', err);
+  }
+}
+
+function renderPrinterCandidateDropdown() {
+  const dropdown = $('printer-candidate-dropdown');
+  const list = $('printer-candidate-list');
+  if (!dropdown || !list) return;
+
+  const candidates = State.printerCandidates || [];
+  if (!candidates.length) {
+    list.innerHTML = `<div class="printer-candidate-empty">No se encontraron dispositivos o reglas existentes</div>`;
+    dropdown.classList.remove('hidden');
+    return;
+  }
+
+  list.innerHTML = candidates.map((c) => {
+    const desc = c.description ? escapeHtml(c.description) : 'Sin nombre asignado';
+    const ipBadge = c.ip ? `<span class="printer-cand-ip mono">${escapeHtml(c.ip)}</span>` : '';
+    const sourceLabel = escapeHtml(c.source || 'FortiGate');
+    return `
+      <div class="printer-candidate-item" data-mac="${escapeHtml(c.mac)}" data-desc="${escapeHtml(c.description || '')}">
+        <div class="printer-cand-info">
+          <div class="printer-cand-desc">${desc}</div>
+          <div class="printer-cand-mac-line">
+            <span class="printer-cand-mac mono">${escapeHtml(c.mac)}</span>
+            ${ipBadge}
+          </div>
+        </div>
+        <span class="printer-cand-source">${sourceLabel}</span>
+      </div>
+    `;
+  }).join('');
+
+  dropdown.classList.remove('hidden');
+}
+
+function selectPrinterCandidate(mac, desc) {
+  const macInput = $('printer-form-mac');
+  const descInput = $('printer-form-desc');
+  const searchInput = $('printer-candidate-search');
+
+  if (macInput) {
+    macInput.value = mac;
+    clearError('printer-form-mac', 'err-printer-mac');
+  }
+  if (descInput && desc) {
+    descInput.value = desc;
+  }
+  if (searchInput) {
+    searchInput.value = `${desc ? desc + ' · ' : ''}${mac}`;
+  }
+
+  // Si este dispositivo ya tiene accesos en la lista activa, marcar sus checkboxes
+  const existingDev = State.printers.find((p) => p.mac.toLowerCase() === mac.toLowerCase());
+  if (existingDev) {
+    $('printer-check-ini').checked = !!existingDev.ini;
+    $('printer-check-pri').checked = !!existingDev.pri;
+    $('printer-check-sec').checked = !!existingDev.sec;
+  }
+
+  closePrinterCandidateDropdown();
+}
+
+function closePrinterCandidateDropdown() {
+  const dropdown = $('printer-candidate-dropdown');
+  if (dropdown) dropdown.classList.add('hidden');
 }
 
 async function savePrinterPermission() {
@@ -1374,6 +1464,42 @@ function initEvents() {
   $('printer-form-mac')?.addEventListener('paste', handleMacPaste);
   $('printer-form-mac')?.addEventListener('blur', (e) => {
     e.target.value = normalizeMac(e.target.value);
+  });
+
+  // Buscador de Candidatos en Modal de Impresoras
+  $('printer-candidate-search')?.addEventListener('input', (e) => {
+    clearTimeout(State.candidateDebounce);
+    const val = e.target.value;
+    State.candidateDebounce = setTimeout(() => loadPrinterCandidates(val), 200);
+  });
+
+  $('printer-candidate-search')?.addEventListener('focus', () => {
+    const val = $('printer-candidate-search').value;
+    loadPrinterCandidates(val);
+  });
+
+  $('printer-candidate-clear')?.addEventListener('click', () => {
+    const searchInput = $('printer-candidate-search');
+    if (searchInput) {
+      searchInput.value = '';
+      loadPrinterCandidates('');
+    }
+  });
+
+  // Selección de candidato al hacer clic en un item de la lista
+  $('printer-candidate-list')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.printer-candidate-item');
+    if (!item) return;
+    const mac = item.dataset.mac;
+    const desc = item.dataset.desc;
+    if (mac) selectPrinterCandidate(mac, desc);
+  });
+
+  // Cerrar dropdown si se hace clic fuera del buscador de candidatos
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#group-printer-candidate-selector')) {
+      closePrinterCandidateDropdown();
+    }
   });
 
   // Keyboard: Escape closes modals

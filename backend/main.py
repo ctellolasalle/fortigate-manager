@@ -969,8 +969,98 @@ async def get_printer_permissions():
     }
 
 
+@app.get("/printers/candidates")
+async def get_printer_candidates(q: Optional[str] = Query(None, description="Búsqueda por texto")):
+    """
+    Obtiene lista de candidatos de dispositivos MAC ya existentes para facilitar su selección rápida.
+    Combina:
+    1. Arrendamientos DHCP configurados en el FortiGate (V170).
+    2. Objetos firewall address de tipo 'mac' o con prefijo 'MAC_' en FortiOS.
+    """
+    candidates = {}
+
+    # 1. Obtener desde DHCP reservations
+    try:
+        server = await _get_dhcp_server()
+        dhcp_entries = server.get("reserved-address", [])
+        for e in dhcp_entries:
+            raw_mac = e.get("mac", "").strip().lower()
+            if raw_mac:
+                candidates[raw_mac] = {
+                    "mac": raw_mac,
+                    "description": e.get("description", "") or "",
+                    "ip": e.get("ip", "") or "",
+                    "source": "DHCP V170",
+                    "object_name": _mac_to_object_name(raw_mac),
+                }
+    except Exception as e:
+        print(f"[FortiGate API] Error obteniendo DHCP para candidatos: {e}")
+
+    # 2. Obtener desde objetos firewall address
+    try:
+        resp = await http_client.get(FW_ADDRESS_URL, headers=HEADERS)
+        if resp.status_code == 200:
+            addr_list = resp.json().get("results", [])
+            for addr in addr_list:
+                obj_name = addr.get("name", "")
+                addr_type = addr.get("type", "")
+                comment = addr.get("comment", "")
+
+                mac = ""
+                raw_mac = addr.get("macaddr")
+                if isinstance(raw_mac, list) and len(raw_mac) > 0:
+                    first = raw_mac[0]
+                    mac = (first.get("macaddr") if isinstance(first, dict) else str(first)).strip().lower()
+                elif isinstance(raw_mac, str) and raw_mac:
+                    mac = raw_mac.strip().lower()
+
+                # Si no tiene macaddr pero el nombre es MAC_...
+                if not mac and obj_name.startswith("MAC_") and len(obj_name) == 16:
+                    raw_hex = obj_name[4:].lower()
+                    mac = ":".join(raw_hex[i:i+2] for i in range(0, 12, 2))
+
+                if mac:
+                    if mac in candidates:
+                        # Completar descripción si faltaba
+                        if not candidates[mac]["description"] and comment:
+                            candidates[mac]["description"] = comment
+                    else:
+                        candidates[mac] = {
+                            "mac": mac,
+                            "description": comment or "",
+                            "ip": "",
+                            "source": "Objeto Firewall",
+                            "object_name": obj_name,
+                        }
+    except Exception as e:
+        print(f"[FortiGate API] Error obteniendo firewall address para candidatos: {e}")
+
+    result_list = list(candidates.values())
+
+    # Filtrar por búsqueda si se envió parámetro q
+    if q:
+        query = q.strip().lower()
+        result_list = [
+            c for c in result_list
+            if query in c["mac"]
+            or query in c["description"].lower()
+            or query in c["ip"].lower()
+            or query in c["object_name"].lower()
+        ]
+
+    # Ordenar por descripción / mac
+    result_list.sort(key=lambda x: (x["description"] == "", x["description"].lower(), x["mac"]))
+
+    return {
+        "success": True,
+        "count": len(result_list),
+        "candidates": result_list,
+    }
+
+
 @app.post("/printers/permissions")
 async def save_printer_permission(perm: PrinterPermissionIn, request: Request):
+
     """
     Crea o actualiza los permisos de un dispositivo en los 3 grupos de impresoras:
     - Asegura la existencia del Address Object en FortiOS.

@@ -421,6 +421,32 @@
       </div>
       <div class="modal-body">
         <form id="printer-form" novalidate>
+          <!-- Selector de MACs existentes -->
+          <div class="form-group" id="group-printer-candidate-selector">
+            <label class="form-label" for="printer-candidate-search">
+              <span>Seleccionar Dispositivo Existente (DHCP / Objetos FortiGate)</span>
+            </label>
+            <div class="printer-candidate-box">
+              <div class="search-wrap" style="width: 100%;">
+                <span class="search-icon">🔍</span>
+                <input
+                  type="text"
+                  class="search-input"
+                  id="printer-candidate-search"
+                  placeholder="Buscar por MAC, equipo o IP para auto-completar..."
+                  autocomplete="off"
+                >
+                <button type="button" class="search-clear" id="printer-candidate-clear" title="Limpiar">✕</button>
+              </div>
+              <div class="printer-candidate-dropdown hidden" id="printer-candidate-dropdown">
+                <div class="printer-candidate-list" id="printer-candidate-list">
+                  <!-- Se llena dinámicamente con app.js -->
+                </div>
+              </div>
+            </div>
+            <span class="form-hint">O ingresa manualmente la dirección MAC a continuación:</span>
+          </div>
+
           <div class="form-group">
             <label class="form-label" for="printer-form-mac">Dirección MAC del Dispositivo <span class="form-required">*</span></label>
             <input
