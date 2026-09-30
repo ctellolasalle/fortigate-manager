@@ -878,11 +878,16 @@ async function savePrinterPermission() {
   const pri = $('printer-check-pri').checked;
   const sec = $('printer-check-sec').checked;
 
-  if (!validateMacFormat(mac)) {
-    showError('printer-form-mac', 'err-printer-mac', 'Ingresa una MAC válida (ej: 00:15:5D:AE:A3:A0)');
+  const macNormalized = normalizeMac(mac);
+  $('printer-form-mac').value = macNormalized;
+  const macRe = /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
+
+  if (!macNormalized || !macRe.test(macNormalized)) {
+    setError('printer-form-mac', 'err-printer-mac', 'Ingresa una MAC válida (ej: 00:15:5D:AE:A3:A0)');
     macInput.focus();
     return;
   }
+  clearError('printer-form-mac', 'err-printer-mac');
 
   const saveBtn = $('printer-modal-save');
   const saveText = $('printer-modal-save-text');
