@@ -37,7 +37,10 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-# Cliente httpx compartido (SSL deshabilitado para certs auto-firmados, igual que backup_fortigate.py)
+# Verificación SSL configurable (False por defecto para certificados autofirmados de appliances internos)
+FGT_VERIFY_SSL = os.getenv("FGT_VERIFY_SSL", "false").lower() in ("true", "1", "yes")
+
+# Cliente httpx compartido
 http_client: httpx.AsyncClient = None
 
 
@@ -45,7 +48,7 @@ http_client: httpx.AsyncClient = None
 async def lifespan(app: FastAPI):
     """Gestiona el ciclo de vida del cliente HTTP y base de datos de auditoría."""
     global http_client
-    http_client = httpx.AsyncClient(verify=False, timeout=30.0)
+    http_client = httpx.AsyncClient(verify=FGT_VERIFY_SSL, timeout=30.0)  # nosec B501
     init_audit_db()
     print(f"[FortiGate API] Backend iniciado -> {FGT_BASE_URL}")
     print(f"[FortiGate API] DHCP Server ID: {DHCP_SERVER_ID} | Rango V170: {V170_START_IP} - {V170_END_IP}")

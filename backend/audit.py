@@ -129,19 +129,16 @@ def get_audit_logs(
 
     where_clause = " WHERE " + " AND ".join(conditions) if conditions else ""
 
-    # Total count
-    cursor.execute(f"SELECT COUNT(*) as total FROM audit_logs{where_clause}", params)
+    # Total count (where_clause solo contiene cláusulas estáticas con parámetros ?)
+    cursor.execute(f"SELECT COUNT(*) as total FROM audit_logs{where_clause}", params)  # nosec B608
     total = cursor.fetchone()["total"]
 
     # Registros paginados
-    query = f"""
-        SELECT id, timestamp, user_email, user_name, event_type, action_status,
-               target_mac, target_ip, description, details, client_ip
-        FROM audit_logs
-        {where_clause}
-        ORDER BY id DESC
-        LIMIT ? OFFSET ?
-    """
+    query = (
+        "SELECT id, timestamp, user_email, user_name, event_type, action_status, "
+        "target_mac, target_ip, description, details, client_ip "
+        "FROM audit_logs" + where_clause + " ORDER BY id DESC LIMIT ? OFFSET ?"
+    )  # nosec B608
     cursor.execute(query, params + [limit, offset])
     rows = cursor.fetchall()
 
@@ -151,8 +148,8 @@ def get_audit_logs(
         if item.get("details"):
             try:
                 item["details"] = json.loads(item["details"])
-            except Exception:
-                pass
+            except (json.JSONDecodeError, TypeError):
+                item["details"] = {"raw": item["details"]}
         logs.append(item)
 
     conn.close()
