@@ -1014,9 +1014,16 @@ function renderAuditLogs(logs) {
     const badge = getAuditBadge(log.event_type, log.action_status);
     const dateFormatted = formatAuditDate(log.timestamp);
     const detailsHtml = formatAuditDetails(log);
-    const targetResource = (log.target_mac ? `<span class="mono">${log.target_mac}</span>` : '') +
-      (log.target_mac && log.target_ip ? '<span class="mobile-resource-sep"> · </span>' : '') +
-      (log.target_ip ? `<span class="mono audit-ip-sub">${log.target_ip}</span>` : (!log.target_mac ? '<span style="color:var(--text-secondary);font-style:italic">—</span>' : ''));
+    let targetResource = '<span style="color:var(--text-secondary);font-style:italic">—</span>';
+    if (log.target_mac && (log.target_ip === 'Impresoras' || log.event_type?.startsWith('PRINTER_'))) {
+      targetResource = `<div style="display:flex;flex-direction:column;gap:0.2rem;"><span class="mono" style="font-weight:600;">${escapeHtml(log.target_mac)}</span><span class="audit-printer-tag">🖨️ Impresoras</span></div>`;
+    } else if (log.target_mac && log.target_ip) {
+      targetResource = `<span class="mono">${escapeHtml(log.target_mac)}</span><span class="mobile-resource-sep"> · </span><span class="mono audit-ip-sub">${escapeHtml(log.target_ip)}</span>`;
+    } else if (log.target_mac) {
+      targetResource = `<span class="mono">${escapeHtml(log.target_mac)}</span>`;
+    } else if (log.target_ip) {
+      targetResource = `<span class="mono audit-ip-sub">${escapeHtml(log.target_ip)}</span>`;
+    }
 
     const userName = log.user_name || log.user_email?.split('@')[0] || 'Sistema';
     const userEmail = log.user_email || 'sistema';
@@ -1094,6 +1101,46 @@ function formatAuditDate(isoStr) {
 function formatAuditDetails(log) {
   let text = escapeHtml(log.description || '');
   const d = log.details;
+
+  // Formato detallado para asignación / modificación de permisos de impresoras
+  if (log.event_type === 'PRINTER_PERM') {
+    const descText = log.description ? `<div class="audit-printer-desc">"${escapeHtml(log.description)}"</div>` : '';
+    const objText = d?.object_name ? `<div class="audit-printer-object mono">${escapeHtml(d.object_name)}</div>` : '';
+    
+    // Si tenemos desglose booleano de accesos actuales o cambios
+    let badgesHtml = '';
+    if (d && (d.ini !== undefined || d.pri !== undefined || d.sec !== undefined)) {
+      const iniBadge = `<span class="audit-printer-badge ${d.ini ? 'active' : 'inactive'}">Inicial (V210): ${d.ini ? '✓ Sí' : '✗ No'}</span>`;
+      const priBadge = `<span class="audit-printer-badge ${d.pri ? 'active' : 'inactive'}">Primaria (V220): ${d.pri ? '✓ Sí' : '✗ No'}</span>`;
+      const secBadge = `<span class="audit-printer-badge ${d.sec ? 'active' : 'inactive'}">Secundaria (V230): ${d.sec ? '✓ Sí' : '✗ No'}</span>`;
+      badgesHtml = `<div class="audit-printer-badges">${iniBadge}${priBadge}${secBadge}</div>`;
+    } else if (d?.changes) {
+      badgesHtml = `<div class="audit-printer-object" style="color:var(--text-primary);font-weight:600;">${escapeHtml(d.changes)}</div>`;
+    }
+
+    return `
+      <div class="audit-printer-details">
+        ${descText}
+        ${badgesHtml}
+        ${objText}
+      </div>
+    `;
+  }
+
+  // Formato para revocación de accesos de impresora
+  if (log.event_type === 'PRINTER_REVOKE') {
+    const objText = d?.object_name ? `<span class="audit-printer-object mono">(${escapeHtml(d.object_name)})</span>` : '';
+    return `
+      <div class="audit-printer-details">
+        <div style="color: #b91c1c; font-weight: 500;">Revocados todos los accesos de impresora ${objText}</div>
+        <div class="audit-printer-badges">
+          <span class="audit-printer-badge removed">-Inicial (V210)</span>
+          <span class="audit-printer-badge removed">-Primaria (V220)</span>
+          <span class="audit-printer-badge removed">-Secundaria (V230)</span>
+        </div>
+      </div>
+    `;
+  }
 
   if (log.event_type === 'UPDATE' && d?.previous && d?.updated) {
     const diffs = [];

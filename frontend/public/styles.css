@@ -2077,3 +2077,75 @@ button {
   justify-content: flex-end;
   gap: 0.35rem;
 }
+
+/* Badges de Auditoría para Impresoras */
+.audit-printer-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: rgba(14, 165, 233, 0.1);
+  color: #0369a1;
+  border: 1px solid rgba(14, 165, 233, 0.25);
+}
+
+.audit-printer-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.audit-printer-desc {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.audit-printer-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.audit-printer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+}
+
+.audit-printer-badge.added {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.audit-printer-badge.removed {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+  text-decoration: line-through;
+}
+
+.audit-printer-badge.active {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.audit-printer-badge.inactive {
+  background: #f8fafc;
+  color: #94a3b8;
+  border: 1px solid #e2e8f0;
+}
+
+.audit-printer-object {
+  font-size: 0.73rem;
+  color: var(--text-secondary);
+}
