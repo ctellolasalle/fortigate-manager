@@ -6,6 +6,26 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 ---
 
+## [2.2.0] - 2026-09-30
+
+### 🖨️ Nueva Característica: Control de Acceso a Impresoras (Firewall Policies & Address Groups)
+- **Gestión por MAC Address:** Se permite registrar y administrar dispositivos (VLAN 160 y 170) para controlar su acceso a las impresoras de las distintas redes del colegio mediante reglas del firewall.
+- **Integración con Address Groups en FortiOS:**
+  - **Inicial (VLAN 210):** Policy ID 55 (`ACC_PRINTER_INI`) vía Address Group `CLIENT_PRINT_INI`.
+  - **Primaria (VLAN 220):** Policy ID 54 (`ACC_PRINTER_PRI`) vía Address Group `CLIENT_PRINT_PRI`.
+  - **Secundaria (VLAN 230):** Policy ID 53 (`ACC_PRINTER_SEC`) vía Address Group `CLIENT_PRINT_SEC`.
+- **Backend FastAPI:**
+  - `GET /printers/permissions`: Consulta miembros de los 3 grupos en FortiOS y construye la tabla unificada con cruce de datos DHCP (IP y descripción).
+  - `POST /printers/permissions`: Crea el Address Object de tipo MAC (`MAC_AABBCCDDEEFF`) y sincroniza de forma atómica y sin duplicados su presencia en cada grupo seleccionado.
+  - `DELETE /printers/permissions/{mac}`: Revoca todos los accesos del dispositivo y remueve el objeto del firewall.
+  - Auditoría integrada con eventos `PRINTER_PERM` y `PRINTER_REVOKE`.
+- **Frontend SPA:**
+  - Nueva pestaña en la barra lateral: 🖨️ **Impresoras**.
+  - Tarjetas de estado con cantidad de dispositivos autorizados por cada nivel.
+  - Tabla dinámica con búsqueda instantánea, badges de estado por VLAN, modal de asignación con switches por nivel y auto-formato de dirección MAC.
+
+---
+
 ## [2.1.0] - 2026-09-30
 
 ### 🚀 Novedades y Correcciones Principales
