@@ -989,16 +989,34 @@ async def _ensure_address_object(obj_name: str, mac: str, comment: str = "") -> 
         return False, str(e)
 
 
-async def _set_group_members(group_name: str, members: list) -> bool:
+async def _set_group_members(group_name: str, members: list) -> tuple[bool, str]:
     """Actualiza la lista completa de miembros de un grupo de direcciones."""
     member_payload = [{"name": m} for m in members]
     url = f"{FW_ADDRGRP_URL}/{group_name}"
     try:
         resp = await http_client.put(url, headers=HEADERS, json={"member": member_payload})
-        return resp.status_code in (200, 201)
+        if resp.status_code in (200, 201):
+            return True, ""
+        
+        # Si el grupo no existe aún (404), crearlo mediante POST
+        if resp.status_code == 404:
+            create_payload = {
+                "name": group_name,
+                "member": member_payload,
+            }
+            create_resp = await http_client.post(FW_ADDRGRP_URL, headers=HEADERS, json=create_payload)
+            if create_resp.status_code in (200, 201):
+                return True, ""
+            err_msg = create_resp.text[:300]
+            print(f"[FortiGate API] Error creando grupo {group_name} ({create_resp.status_code}): {err_msg}")
+            return False, f"HTTP {create_resp.status_code}: {err_msg}"
+
+        err_msg = resp.text[:300]
+        print(f"[FortiGate API] Error actualizando miembros de {group_name} ({resp.status_code}): {err_msg}")
+        return False, f"HTTP {resp.status_code}: {err_msg}"
     except Exception as e:
         print(f"[FortiGate API] Error actualizando miembros de {group_name}: {e}")
-        return False
+        return False, str(e)
 
 
 @app.get("/printers/permissions")
@@ -1398,11 +1416,11 @@ async def save_social_media_permission(perm: SocialMediaPermissionIn, request: R
     already_in = (obj_name in current_members)
     if not already_in:
         current_members.append(obj_name)
-        ok = await _set_group_members(group_name, current_members)
+        ok, err = await _set_group_members(group_name, current_members)
         if not ok:
             raise HTTPException(
                 status_code=502,
-                detail=f"No se pudo agregar {obj_name} al grupo {group_name}"
+                detail=f"No se pudo agregar {obj_name} al grupo {group_name}: {err}"
             )
 
     # 3. Auditoría
@@ -1453,11 +1471,11 @@ async def revoke_social_media_permission(mac: str, request: Request):
     matched = [m for m in current_members if m == obj_name or m == raw_target]
     if matched:
         current_members = [m for m in current_members if m not in matched]
-        ok = await _set_group_members(group_name, current_members)
+        ok, err = await _set_group_members(group_name, current_members)
         if not ok:
             raise HTTPException(
                 status_code=502,
-                detail=f"No se pudo remover {obj_name} del grupo {group_name}"
+                detail=f"No se pudo remover {obj_name} del grupo {group_name}: {err}"
             )
 
     # Auditoría
