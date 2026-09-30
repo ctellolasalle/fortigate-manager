@@ -2337,4 +2337,23 @@ button {
   color: var(--text-secondary, #64748b);
   font-style: italic;
 }
+
+/* ─── Redes Sociales (Policy 34) ──────────────────────────────────────────── */
+.badge-social-access {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.65rem;
+  border-radius: 9999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge-social-active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
 

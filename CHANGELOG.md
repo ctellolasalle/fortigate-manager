@@ -6,6 +6,30 @@ El formato se basa en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/
 
 ---
 
+## [2.3.0] - 2026-09-30
+
+### 📱 Nueva Característica: Control de Acceso a Redes Sociales (Policy 34 - UNLOCK_TO_SOCIAL_MEDIA)
+- **Objetivo:** Permitir habilitar o revocar el acceso a redes sociales para dispositivos Wi-Fi de forma ágil e independiente de las reglas de impresoras.
+- **Integración con FortiOS:**
+  - **Policy ID:** 34 (`ACC_SOCIAL_MEDIA_WIFI`).
+  - **Address Group:** `UNLOCK_TO_SOCIAL_MEDIA`.
+- **Backend FastAPI:**
+  - `GET /social-media/permissions`: Consulta miembros del grupo `UNLOCK_TO_SOCIAL_MEDIA` en FortiOS y los enriquece con datos DHCP (IP, host/usuario).
+  - `POST /social-media/permissions`: Crea o selecciona el Address Object (`MAC_...`) y lo incorpora al grupo `UNLOCK_TO_SOCIAL_MEDIA` sin duplicados.
+  - `DELETE /social-media/permissions/{mac}`: Remueve el dispositivo del grupo `UNLOCK_TO_SOCIAL_MEDIA` revocando la navegación en redes sociales sin eliminar el objeto de firewall (protegiendo otros accesos como impresoras).
+  - Auditoría integrada con eventos `SOCIAL_PERM` y `SOCIAL_REVOKE`.
+- **Frontend SPA:**
+  - Nueva pestaña en la barra lateral: 📱 **Redes Sociales** con contador de dispositivos activos.
+  - Buscador y filtro dinámico sobre la tabla de dispositivos autorizados.
+  - Modal para habilitar dispositivos con buscador predictivo de MACs existentes (DHCP / Objetos FortiGate) o tipeo manual con validación y auto-formato.
+  - Modal de confirmación para revocación de acceso.
+
+### 🐛 Correcciones en Arrendamientos DHCP
+- **Fix `ReferenceError: renderRecentLeases is not defined`:** Se eliminó la llamada residual a `renderRecentLeases` en `loadLeases()`, corrigiendo el fallo al cargar y filtrar arrendamientos cuando la vista estaba en *"Todas las acciones"*.
+- **Fix Conversión a `Assign IP`:** En `bulk_convert_to_assign` y edición individual, se implementó la recreación atómica (`DELETE` seguido de `POST` en la subtabla `/reserved-address` sin campo `ip`), forzando a FortiOS a eliminar la IP estática y pasar de forma efectiva la regla a asignación dinámica (`action: assign`).
+
+---
+
 ## [2.2.0] - 2026-09-30
 
 ### 🖨️ Nueva Característica: Control de Acceso a Impresoras (Firewall Policies & Address Groups)

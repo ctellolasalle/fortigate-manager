@@ -24,8 +24,14 @@ const State = {
   printerDebounce: null,
   candidateDebounce: null,
   printerCandidates: [],
+  socialDevices: [],
+  filteredSocialDevices: [],
+  socialDebounce: null,
+  socialCandidateDebounce: null,
+  socialCandidates: [],
   pendingDelete: null,
   pendingPrinterDelete: null,
+  pendingSocialDelete: null,
   editingId: null,
 };
 
@@ -115,6 +121,7 @@ function switchView(name) {
     leases: 'Arrendamientos DHCP',
     available: 'IPs Disponibles',
     printers: 'Control de Acceso a Impresoras',
+    social: 'Control de Acceso a Redes Sociales',
     audit: 'Registro de Auditoría',
   };
   setText('breadcrumb', titles[name] || name);
@@ -122,6 +129,7 @@ function switchView(name) {
   // Load data for view
   if (name === 'available') loadAvailableIPs();
   if (name === 'printers') loadPrinterPermissions();
+  if (name === 'social') loadSocialPermissions();
   if (name === 'audit') {
     loadAuditUsers();
     loadAuditLogs();
@@ -242,7 +250,6 @@ async function loadLeases() {
     State.selectedLeases = new Set([...State.selectedLeases].filter((id) => validReservedIds.has(id)));
 
     applyLeaseFilters();
-    renderRecentLeases(recentTbody);
   } catch (err) {
     if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="empty-row">❌ Error: ${err.message}</td></tr>`;
     toast(`Error cargando arrendamientos: ${err.message}`, 'error');
@@ -1143,6 +1150,245 @@ async function confirmPrinterDelete() {
   }
 }
 
+// ─── Control de Acceso a Redes Sociales (Policy 34 - UNLOCK_TO_SOCIAL_MEDIA) ──
+async function loadSocialPermissions() {
+  const tbody = $('social-tbody');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row"><div class="loading-spinner"></div> Consultando FortiGate...</td></tr>`;
+  }
+
+  try {
+    const data = await API.get('/social-media/permissions');
+    State.socialDevices = data.devices || [];
+    State.filteredSocialDevices = [...State.socialDevices];
+
+    setText('stat-social-total', data.total ?? '0');
+    setText('social-count', data.total ?? '0');
+    setText('social-count-badge', `${data.total ?? 0} dispositivo${(data.total ?? 0) === 1 ? '' : 's'}`);
+
+    renderSocialPermissions();
+  } catch (err) {
+    console.error('Error cargando permisos de redes sociales:', err);
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-row" style="color:var(--error-color,#ef4444);">❌ Error al consultar FortiGate: ${escapeHtml(err.message)}</td></tr>`;
+    }
+    toast(`Error al obtener permisos de redes sociales: ${err.message}`, 'error', 5000);
+  }
+}
+
+function renderSocialPermissions() {
+  const tbody = $('social-tbody');
+  if (!tbody) return;
+
+  const devices = State.filteredSocialDevices;
+  if (!devices || devices.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-row">No hay dispositivos registrados con acceso a Redes Sociales</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = devices.map((d) => {
+    return `
+      <tr>
+        <td class="mono font-semibold">${escapeHtml(d.mac)}</td>
+        <td>
+          <div style="display:flex; flex-direction:column; gap:0.2rem;">
+            <span>${escapeHtml(d.description || '—')}</span>
+            ${d.ip ? `<span class="mono" style="font-size:0.75rem; color:var(--text-secondary);">IP DHCP: ${escapeHtml(d.ip)}</span>` : ''}
+          </div>
+        </td>
+        <td class="mono" style="font-size:0.85rem; color:var(--text-secondary);">${escapeHtml(d.object_name)}</td>
+        <td style="text-align:center;">
+          <span class="badge-social-access badge-social-active" title="Miembro activo de UNLOCK_TO_SOCIAL_MEDIA (Policy 34)">
+            ✓ Habilitado
+          </span>
+        </td>
+        <td style="text-align:right;">
+          <button class="btn btn-ghost btn-xs" data-social-action="delete" data-mac="${escapeHtml(d.mac)}" title="Revocar acceso a redes sociales" style="color:var(--error-color);">🗑️</button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function handleSocialSearch(query) {
+  const q = (query || '').toLowerCase().trim();
+  if (!q) {
+    State.filteredSocialDevices = [...State.socialDevices];
+  } else {
+    State.filteredSocialDevices = State.socialDevices.filter((d) => {
+      const mac = (d.mac || '').toLowerCase();
+      const desc = (d.description || '').toLowerCase();
+      const ip = (d.ip || '').toLowerCase();
+      const obj = (d.object_name || '').toLowerCase();
+      return mac.includes(q) || desc.includes(q) || ip.includes(q) || obj.includes(q);
+    });
+  }
+  setText('social-count-badge', `${State.filteredSocialDevices.length} de ${State.socialDevices.length} dispositivos`);
+  renderSocialPermissions();
+}
+
+function openSocialModal() {
+  clearError('social-form-mac', 'err-social-mac');
+  const macInput = $('social-form-mac');
+  const descInput = $('social-form-desc');
+  const searchInput = $('social-candidate-search');
+
+  if (macInput) {
+    macInput.value = '';
+    macInput.disabled = false;
+  }
+  if (descInput) descInput.value = '';
+  if (searchInput) searchInput.value = '';
+  closeSocialCandidateDropdown();
+
+  loadSocialCandidates('');
+  openModal('social-modal-overlay');
+}
+
+async function loadSocialCandidates(query = '') {
+  try {
+    const qParam = query ? `?q=${encodeURIComponent(query)}` : '';
+    const res = await API.get(`/printers/candidates${qParam}`);
+    State.socialCandidates = res.candidates || [];
+    renderSocialCandidateDropdown();
+  } catch (err) {
+    console.warn('[Social Candidates] Error buscando candidatos:', err);
+  }
+}
+
+function renderSocialCandidateDropdown() {
+  const dropdown = $('social-candidate-dropdown');
+  const list = $('social-candidate-list');
+  if (!dropdown || !list) return;
+
+  const candidates = State.socialCandidates || [];
+  if (!candidates.length) {
+    list.innerHTML = `<div class="printer-candidate-empty">No se encontraron dispositivos o reglas existentes</div>`;
+    dropdown.classList.remove('hidden');
+    return;
+  }
+
+  list.innerHTML = candidates.map((c) => {
+    const desc = c.description ? escapeHtml(c.description) : 'Sin nombre asignado';
+    const ipBadge = c.ip ? `<span class="printer-cand-ip mono">${escapeHtml(c.ip)}</span>` : '';
+    const sourceLabel = escapeHtml(c.source || 'FortiGate');
+    return `
+      <div class="printer-candidate-item social-cand-item" data-mac="${escapeHtml(c.mac)}" data-desc="${escapeHtml(c.description || '')}">
+        <div class="printer-cand-info">
+          <div class="printer-cand-desc">${desc}</div>
+          <div class="printer-cand-mac-line">
+            <span class="printer-cand-mac mono">${escapeHtml(c.mac)}</span>
+            ${ipBadge}
+          </div>
+        </div>
+        <span class="printer-cand-source">${sourceLabel}</span>
+      </div>
+    `;
+  }).join('');
+
+  dropdown.classList.remove('hidden');
+}
+
+function selectSocialCandidate(mac, desc) {
+  const macInput = $('social-form-mac');
+  const descInput = $('social-form-desc');
+  const searchInput = $('social-candidate-search');
+
+  if (macInput) {
+    macInput.value = mac;
+    clearError('social-form-mac', 'err-social-mac');
+  }
+  if (descInput && desc) {
+    descInput.value = desc;
+  }
+  if (searchInput) {
+    searchInput.value = `${desc ? desc + ' · ' : ''}${mac}`;
+  }
+  closeSocialCandidateDropdown();
+}
+
+function closeSocialCandidateDropdown() {
+  const dropdown = $('social-candidate-dropdown');
+  if (dropdown) dropdown.classList.add('hidden');
+}
+
+async function saveSocialPermission() {
+  const macInput = $('social-form-mac');
+  const mac = (macInput.value || '').trim();
+  const desc = $('social-form-desc').value.trim();
+
+  const macNormalized = normalizeMac(mac);
+  $('social-form-mac').value = macNormalized;
+  const macRe = /^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$/;
+
+  if (!macNormalized || !macRe.test(macNormalized)) {
+    setError('social-form-mac', 'err-social-mac', 'Ingresa una MAC válida (ej: 00:15:5D:AE:A3:A0)');
+    macInput.focus();
+    return;
+  }
+  clearError('social-form-mac', 'err-social-mac');
+
+  const saveBtn = $('social-modal-save');
+  const saveText = $('social-modal-save-text');
+  const spinner = $('social-modal-spinner');
+
+  saveBtn.disabled = true;
+  saveText.textContent = 'Habilitando en FortiGate...';
+  spinner.classList.remove('hidden');
+
+  try {
+    const res = await API.post('/social-media/permissions', {
+      mac,
+      description: desc,
+    });
+
+    toast(res.message || 'Acceso a Redes Sociales habilitado exitosamente', 'success');
+    closeModal('social-modal-overlay');
+    await loadSocialPermissions();
+  } catch (err) {
+    toast(`Error: ${err.message}`, 'error', 5000);
+  } finally {
+    saveBtn.disabled = false;
+    saveText.textContent = 'Habilitar Acceso';
+    spinner.classList.add('hidden');
+  }
+}
+
+function openSocialDeleteModal(mac) {
+  const dev = State.socialDevices.find((d) => d.mac.toLowerCase() === mac.toLowerCase());
+  State.pendingSocialDelete = mac;
+  setText('social-delete-desc', dev?.description ? `${dev.description} (${mac})` : mac);
+  setText('social-delete-mac', mac);
+  openModal('social-delete-overlay');
+}
+
+async function confirmSocialDelete() {
+  const mac = State.pendingSocialDelete;
+  if (!mac) return;
+
+  const btn = $('social-delete-confirm');
+  const text = $('social-delete-confirm-text');
+  const spinner = $('social-delete-spinner');
+
+  btn.disabled = true;
+  text.textContent = 'Revocando...';
+  spinner.classList.remove('hidden');
+
+  try {
+    const res = await API.del(`/social-media/permissions/${encodeURIComponent(mac)}`);
+    toast(res.message || 'Acceso a redes sociales revocado exitosamente', 'success');
+    closeModal('social-delete-overlay');
+    await loadSocialPermissions();
+  } catch (err) {
+    toast(`Error al revocar acceso: ${err.message}`, 'error', 5000);
+  } finally {
+    btn.disabled = false;
+    text.textContent = 'Revocar Acceso';
+    spinner.classList.add('hidden');
+    State.pendingSocialDelete = null;
+  }
+}
+
 // ─── Auditoría (Admin) ────────────────────────────────────────────────────────
 async function loadAuditUsers() {
   const select = $('audit-filter-user');
@@ -1266,6 +1512,10 @@ function getAuditBadge(eventType, status) {
       return `<span class="badge-event badge-event-create">🖨️ Permisos Impresora</span>`;
     case 'PRINTER_REVOKE':
       return `<span class="badge-event badge-event-delete">🖨️ Revocación Impresora</span>`;
+    case 'SOCIAL_PERM':
+      return `<span class="badge-event badge-event-create">📱 Redes Sociales (Alta)</span>`;
+    case 'SOCIAL_REVOKE':
+      return `<span class="badge-event badge-event-delete">📱 Redes Sociales (Baja)</span>`;
     default:
       return `<span class="badge-event">${escapeHtml(eventType)}</span>`;
   }
@@ -1291,6 +1541,33 @@ function formatAuditDate(isoStr) {
 function formatAuditDetails(log) {
   let text = escapeHtml(log.description || '');
   const d = log.details;
+
+  // Formato detallado para redes sociales (alta / habilitación)
+  if (log.event_type === 'SOCIAL_PERM') {
+    const descText = log.description ? `<div class="audit-printer-desc">"${escapeHtml(log.description)}"</div>` : '';
+    const objText = d?.object_name ? `<div class="audit-printer-object mono">${escapeHtml(d.object_name)}</div>` : '';
+    const badge = `<span class="audit-printer-badge active">Policy 34: ACC_SOCIAL_MEDIA_WIFI</span>`;
+    return `
+      <div class="audit-printer-details">
+        ${descText}
+        <div class="audit-printer-badges">${badge}</div>
+        ${objText}
+      </div>
+    `;
+  }
+
+  // Formato para redes sociales (revocación / baja)
+  if (log.event_type === 'SOCIAL_REVOKE') {
+    const objText = d?.object_name ? `<span class="audit-printer-object mono">(${escapeHtml(d.object_name)})</span>` : '';
+    return `
+      <div class="audit-printer-details">
+        <div style="color: #b91c1c; font-weight: 500;">Revocado acceso a Redes Sociales ${objText}</div>
+        <div class="audit-printer-badges">
+          <span class="audit-printer-badge removed">-UNLOCK_TO_SOCIAL_MEDIA</span>
+        </div>
+      </div>
+    `;
+  }
 
   // Formato detallado para asignación / modificación de permisos de impresoras
   if (log.event_type === 'PRINTER_PERM') {
@@ -1667,6 +1944,79 @@ function initEvents() {
     }
   });
 
+  // Control de Acceso a Redes Sociales (Policy 34)
+  $('add-social-perm-btn')?.addEventListener('click', () => openSocialModal());
+  $('social-refresh-btn')?.addEventListener('click', loadSocialPermissions);
+  $('social-search-input')?.addEventListener('input', (e) => {
+    clearTimeout(State.socialDebounce);
+    State.socialDebounce = setTimeout(() => handleSocialSearch(e.target.value), 200);
+  });
+
+  // Delegación de eventos en la tabla de redes sociales
+  $('social-tbody')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-social-action]');
+    if (!btn) return;
+    const action = btn.dataset.socialAction;
+    const mac = btn.dataset.mac;
+    if (action === 'delete') openSocialDeleteModal(mac);
+  });
+
+  // Modales de Redes Sociales
+  $('social-modal-close')?.addEventListener('click', () => closeModal('social-modal-overlay'));
+  $('social-modal-cancel')?.addEventListener('click', () => closeModal('social-modal-overlay'));
+  $('social-modal-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('social-modal-overlay')) closeModal('social-modal-overlay');
+  });
+  $('social-modal-save')?.addEventListener('click', saveSocialPermission);
+
+  $('social-delete-close')?.addEventListener('click', () => closeModal('social-delete-overlay'));
+  $('social-delete-cancel')?.addEventListener('click', () => closeModal('social-delete-overlay'));
+  $('social-delete-overlay')?.addEventListener('click', (e) => {
+    if (e.target === $('social-delete-overlay')) closeModal('social-delete-overlay');
+  });
+  $('social-delete-confirm')?.addEventListener('click', confirmSocialDelete);
+
+  // Auto-formato de MAC en modal de redes sociales
+  $('social-form-mac')?.addEventListener('input', formatMacInput);
+  $('social-form-mac')?.addEventListener('paste', handleMacPaste);
+  $('social-form-mac')?.addEventListener('blur', (e) => {
+    e.target.value = normalizeMac(e.target.value);
+  });
+
+  // Buscador de Candidatos en Modal de Redes Sociales
+  $('social-candidate-search')?.addEventListener('input', (e) => {
+    clearTimeout(State.socialCandidateDebounce);
+    const val = e.target.value;
+    State.socialCandidateDebounce = setTimeout(() => loadSocialCandidates(val), 200);
+  });
+
+  $('social-candidate-search')?.addEventListener('focus', () => {
+    const val = $('social-candidate-search').value;
+    loadSocialCandidates(val);
+  });
+
+  $('social-candidate-clear')?.addEventListener('click', () => {
+    const searchInput = $('social-candidate-search');
+    if (searchInput) {
+      searchInput.value = '';
+      loadSocialCandidates('');
+    }
+  });
+
+  $('social-candidate-list')?.addEventListener('click', (e) => {
+    const item = e.target.closest('.social-cand-item');
+    if (!item) return;
+    const mac = item.dataset.mac;
+    const desc = item.dataset.desc;
+    if (mac) selectSocialCandidate(mac, desc);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#group-social-candidate-selector')) {
+      closeSocialCandidateDropdown();
+    }
+  });
+
   // Keyboard: Escape closes modals
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -1674,6 +2024,8 @@ function initEvents() {
       closeModal('delete-overlay');
       closeModal('printer-modal-overlay');
       closeModal('printer-delete-overlay');
+      closeModal('social-modal-overlay');
+      closeModal('social-delete-overlay');
     }
   });
 }
@@ -1684,7 +2036,7 @@ async function init() {
 
   // Load user info and parallel data
   await loadUser();
-  await Promise.all([loadFortiStatus(), loadLeases(), loadStats(), loadPrinterPermissions()]);
+  await Promise.all([loadFortiStatus(), loadLeases(), loadStats(), loadPrinterPermissions(), loadSocialPermissions()]);
 
   // Auto-refresh every 60 seconds
   setInterval(() => {
@@ -1692,6 +2044,7 @@ async function init() {
     loadStats();
     loadFortiStatus();
     if (State.currentView === 'printers') loadPrinterPermissions();
+    if (State.currentView === 'social') loadSocialPermissions();
   }, 60_000);
 }
 
@@ -1701,6 +2054,8 @@ window.openDeleteModal = openDeleteModal;
 window.openAddModal = openAddModal;
 window.openPrinterModal = openPrinterModal;
 window.openPrinterDeleteModal = openPrinterDeleteModal;
+window.openSocialModal = openSocialModal;
+window.openSocialDeleteModal = openSocialDeleteModal;
 window.quickReserve = quickReserve;
 window.refreshAll = refreshAll;
 window.exportCSV = exportCSV;

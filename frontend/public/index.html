@@ -40,6 +40,11 @@
         <span>Impresoras</span>
         <span class="nav-badge" id="printers-count">—</span>
       </a>
+      <a href="#" class="nav-item" data-view="social" id="nav-social">
+        <span class="nav-icon">📱</span>
+        <span>Redes Sociales</span>
+        <span class="nav-badge" id="social-count">—</span>
+      </a>
       <a href="#" class="nav-item hidden" data-view="audit" id="nav-audit">
         <span class="nav-icon">📜</span>
         <span>Auditoría</span>
@@ -434,6 +439,76 @@
         </div>
       </div>
     </section>
+
+    <!-- ─── View: Acceso a Redes Sociales (Policy 34 - UNLOCK_TO_SOCIAL_MEDIA) ── -->
+    <section class="view" id="view-social">
+      <div class="page-header">
+        <div>
+          <h1>Control de Acceso a Redes Sociales</h1>
+          <p class="page-sub">Dispositivos autorizados para navegación en Redes Sociales (Policy 34 · ACC_SOCIAL_MEDIA_WIFI)</p>
+        </div>
+        <div class="page-header-actions">
+          <button class="btn btn-primary" id="add-social-perm-btn">
+            <span>➕</span> Habilitar Dispositivo
+          </button>
+        </div>
+      </div>
+
+      <!-- Info Card de la Política y Grupo -->
+      <div class="cards-grid cards-grid-2">
+        <div class="card stat-card">
+          <div class="card-header">
+            <span class="card-icon">📱</span>
+            <span class="card-title">Dispositivos con Acceso</span>
+          </div>
+          <div class="stat-value" id="stat-social-total">—</div>
+          <div class="stat-sub">Direcciones MAC activas en el grupo</div>
+        </div>
+        <div class="card stat-card">
+          <div class="card-header">
+            <span class="card-icon">🛡️</span>
+            <span class="card-title">Regla FortiGate</span>
+          </div>
+          <div class="stat-value" style="font-size: 1.45rem; padding-top: 0.5rem; word-break: break-all;">UNLOCK_TO_SOCIAL_MEDIA</div>
+          <div class="stat-sub">Policy ID 34 · ACC_SOCIAL_MEDIA_WIFI</div>
+        </div>
+      </div>
+
+      <!-- Tabla de dispositivos con acceso a Redes Sociales -->
+      <div class="card table-card" style="margin-top: 1.5rem;">
+        <div class="card-header">
+          <div class="table-search">
+            <input
+              type="text"
+              class="search-input"
+              id="social-search-input"
+              placeholder="Buscar por MAC, equipo o IP..."
+              autocomplete="off"
+            >
+          </div>
+          <div class="table-actions">
+            <span class="count-badge" id="social-count-badge">0 dispositivos</span>
+            <button class="btn btn-ghost btn-sm" id="social-refresh-btn" title="Recargar">↻</button>
+          </div>
+        </div>
+        <div class="table-container">
+          <table class="data-table" id="social-table">
+            <thead>
+              <tr>
+                <th style="min-width: 170px;">Dispositivo (MAC)</th>
+                <th>Nombre / Descripción</th>
+                <th style="min-width: 140px;">Objeto Firewall</th>
+                <th style="text-align: center; min-width: 140px;">Estado</th>
+                <th style="width: 100px; text-align: right;">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="social-tbody">
+              <tr><td colspan="5" class="empty-row"><div class="loading-spinner"></div> Cargando dispositivos autorizados...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- ─── Modal: Asignar / Editar Acceso a Impresoras ────────────────────────── -->
@@ -555,6 +630,110 @@
         <button class="btn btn-danger" id="printer-delete-confirm">
           <span id="printer-delete-confirm-text">Revocar Accesos</span>
           <div class="btn-spinner hidden" id="printer-delete-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Habilitar Acceso a Redes Sociales ───────────────────────────── -->
+  <div class="modal-overlay" id="social-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="social-modal-title">
+    <div class="modal" id="social-modal">
+      <div class="modal-header">
+        <h2 class="modal-title" id="social-modal-title">Habilitar Acceso a Redes Sociales</h2>
+        <button class="modal-close" id="social-modal-close" aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <form id="social-form" novalidate>
+          <!-- Selector de MACs existentes -->
+          <div class="form-group" id="group-social-candidate-selector">
+            <label class="form-label" for="social-candidate-search">
+              <span>Seleccionar Dispositivo Existente (DHCP / Objetos FortiGate)</span>
+            </label>
+            <div class="printer-candidate-box">
+              <div class="search-wrap" style="width: 100%;">
+                <span class="search-icon">🔍</span>
+                <input
+                  type="text"
+                  class="search-input"
+                  id="social-candidate-search"
+                  placeholder="Buscar por MAC, equipo o IP para auto-completar..."
+                  autocomplete="off"
+                >
+                <button type="button" class="search-clear" id="social-candidate-clear" title="Limpiar">✕</button>
+              </div>
+              <div class="printer-candidate-dropdown hidden" id="social-candidate-dropdown">
+                <div class="printer-candidate-list" id="social-candidate-list">
+                  <!-- Se llena dinámicamente con app.js -->
+                </div>
+              </div>
+            </div>
+            <span class="form-hint">O ingresa manualmente la dirección MAC a continuación:</span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="social-form-mac">Dirección MAC del Dispositivo <span class="form-required">*</span></label>
+            <input
+              type="text"
+              class="form-input mono"
+              id="social-form-mac"
+              placeholder="XX:XX:XX:XX:XX:XX"
+              autocomplete="off"
+              maxlength="17"
+            >
+            <span class="form-hint">Dispositivo que requiere acceso a Redes Sociales</span>
+            <span class="form-error" id="err-social-mac"></span>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="social-form-desc">Nombre del Equipo / Usuario</label>
+            <input
+              type="text"
+              class="form-input"
+              id="social-form-desc"
+              placeholder="Ej: Celular Dirección / Juan Perez"
+              maxlength="255"
+            >
+          </div>
+
+          <div class="card" style="background: rgba(37, 99, 235, 0.05); border: 1px solid rgba(37, 99, 235, 0.2); padding: 0.85rem; border-radius: var(--radius-md); margin-top: 1rem;">
+            <div style="font-weight: 600; font-size: 0.85rem; color: var(--primary-color); display: flex; align-items: center; gap: 0.4rem;">
+              <span>ℹ️</span> Destino de la Regla
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 0.35rem 0 0;">
+              El dispositivo será incorporado al grupo <strong>UNLOCK_TO_SOCIAL_MEDIA</strong> permitiéndole navegar a través de la <strong>Policy 34 (ACC_SOCIAL_MEDIA_WIFI)</strong>.
+            </p>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="social-modal-cancel">Cancelar</button>
+        <button class="btn btn-primary" id="social-modal-save" type="button">
+          <span id="social-modal-save-text">Habilitar Acceso</span>
+          <div class="btn-spinner hidden" id="social-modal-spinner"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Modal: Confirmar revocación de redes sociales ─────────────────────── -->
+  <div class="modal-overlay" id="social-delete-overlay" role="dialog" aria-modal="true">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <h2 class="modal-title">⚠️ Revocar Acceso a Redes Sociales</h2>
+        <button class="modal-close" id="social-delete-close">✕</button>
+      </div>
+      <div class="modal-body">
+        <p>¿Quitar el acceso a redes sociales para <strong id="social-delete-desc"></strong>?</p>
+        <div class="delete-details">
+          <div class="info-row"><span class="info-label">MAC</span><span class="info-value mono" id="social-delete-mac"></span></div>
+        </div>
+        <p class="delete-warning">Se removerá del grupo UNLOCK_TO_SOCIAL_MEDIA en el FortiGate. No afectará otros accesos (como impresoras).</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="social-delete-cancel">Cancelar</button>
+        <button class="btn btn-danger" id="social-delete-confirm">
+          <span id="social-delete-confirm-text">Revocar Acceso</span>
+          <div class="btn-spinner hidden" id="social-delete-spinner"></div>
         </button>
       </div>
     </div>

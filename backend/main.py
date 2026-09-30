@@ -58,6 +58,14 @@ PRINTER_GROUPS = {
     },
 }
 
+SOCIAL_MEDIA_CONFIG = {
+    "group_name": "UNLOCK_TO_SOCIAL_MEDIA",
+    "policy_id": 34,
+    "policy_name": "ACC_SOCIAL_MEDIA_WIFI",
+    "label": "Redes Sociales (WiFi)",
+}
+
+
 HEADERS = {
     "Authorization": f"Bearer {FGT_TOKEN}",
     "Content-Type": "application/json",
@@ -211,6 +219,24 @@ class PrinterPermissionIn(BaseModel):
         if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
             raise ValueError(f"Dirección MAC inválida: {v}")
         return v
+
+
+class SocialMediaPermissionIn(BaseModel):
+    mac: str
+    description: Optional[str] = ""
+
+    @field_validator("mac")
+    @classmethod
+    def validate_mac(cls, v: str) -> str:
+        v = v.strip().lower()
+        v = v.replace("-", ":").replace(".", ":")
+        if len(v) == 12 and all(c in "0123456789abcdef" for c in v):
+            v = ":".join(v[i:i+2] for i in range(0, 12, 2))
+        parts = v.split(":")
+        if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
+            raise ValueError(f"Dirección MAC inválida: {v}")
+        return v
+
 
 
 def _extract_actor(request: Request) -> dict:
@@ -656,10 +682,27 @@ async def bulk_convert_to_assign(payload: BulkConvertToAssignIn, request: Reques
         if e.get("id") in target_ids:
             old_ip = (e.get("ip") or "").strip()
             old_action = (e.get("action") or "").strip().lower()
-            e["action"] = "assign-ip"
+            e["action"] = "assign"
             e["ip"] = ""
             converted_count += 1
             updated_macs.append(e.get("mac", ""))
+
+            # Para cada entrada en FortiOS, borrar y recrear atómicamente como assign sin IP
+            item_id = e.get("id")
+            item_url = f"{DHCP_URL}/reserved-address/{item_id}"
+            clean_item = {
+                "id": item_id,
+                "mac": e["mac"],
+                "type": e.get("type", "mac"),
+                "action": "assign",
+                "description": (e.get("description") or "").strip()[:255],
+            }
+            try:
+                del_resp = await http_client.delete(item_url, headers=HEADERS)
+                post_resp = await http_client.post(f"{DHCP_URL}/reserved-address", headers=HEADERS, json=clean_item)
+                print(f"[FortiGate API] Bulk convert ID {item_id}: del={del_resp.status_code}, post={post_resp.status_code}")
+            except Exception as ex:
+                print(f"[FortiGate API] Error en recreación atómica de ID {item_id}: {ex}")
 
             # Auditoría por cada elemento convertido
             log_event(
@@ -687,7 +730,7 @@ async def bulk_convert_to_assign(payload: BulkConvertToAssignIn, request: Reques
                 client_ip=actor["ip"],
             )
 
-    # Guardar la subtabla limpia en FortiOS
+    # Asegurar persistencia completa de la subtabla limpia en FortiOS
     await _save_reserved_addresses(entries)
 
     return {
@@ -1259,3 +1302,185 @@ async def revoke_printer_permissions(mac: str, request: Request):
         "success": True,
         "message": f"Accesos de impresora revocados para {clean_mac}",
     }
+
+
+# ─── Control de Acceso a Redes Sociales (UNLOCK_TO_SOCIAL_MEDIA) ───────────────
+
+@app.get("/social-media/permissions")
+async def get_social_media_permissions():
+    """
+    Lista todos los dispositivos que forman parte del grupo UNLOCK_TO_SOCIAL_MEDIA
+    (vinculado a la Policy 34 - ACC_SOCIAL_MEDIA_WIFI).
+    """
+    group_name = SOCIAL_MEDIA_CONFIG["group_name"]
+    members = await _get_address_group_members(group_name)
+
+    dhcp_map = {}
+    try:
+        dhcp_server = await _get_dhcp_server()
+        dhcp_entries = dhcp_server.get("reserved-address", [])
+        dhcp_map = {e.get("mac", "").lower(): e for e in dhcp_entries if e.get("mac")}
+    except Exception as e:
+        print(f"[FortiGate API] Aviso: No se pudo obtener DHCP para enriquecer redes sociales: {e}")
+
+    devices = []
+    for obj_name in sorted(members):
+        try:
+            obj_data = await _get_address_object(obj_name)
+        except Exception:
+            obj_data = None
+
+        macs = []
+        description = ""
+        if obj_data:
+            raw_mac = obj_data.get("macaddr")
+            if isinstance(raw_mac, list):
+                for item in raw_mac:
+                    val = (item.get("macaddr") if isinstance(item, dict) else str(item)).strip().lower()
+                    if val:
+                        macs.append(val)
+            elif isinstance(raw_mac, str) and raw_mac.strip():
+                macs.append(raw_mac.strip().lower())
+            description = obj_data.get("comment", "")
+
+        if not macs and obj_name.startswith("MAC_") and len(obj_name) == 16:
+            raw_hex = obj_name[4:].lower()
+            macs.append(":".join(raw_hex[i:i+2] for i in range(0, 12, 2)))
+
+        mac = ", ".join(macs) if macs else obj_name
+
+        first_mac = macs[0] if macs else ""
+        dhcp_match = dhcp_map.get(first_mac) if first_mac else None
+        ip_assigned = dhcp_match.get("ip") if dhcp_match else ""
+        if not description and dhcp_match and dhcp_match.get("description"):
+            description = dhcp_match.get("description")
+
+        devices.append({
+            "object_name": obj_name,
+            "mac": mac,
+            "mac_list": macs,
+            "ip": ip_assigned or "",
+            "description": description or "",
+            "enabled": True,
+        })
+
+    return {
+        "success": True,
+        "config": SOCIAL_MEDIA_CONFIG,
+        "total": len(devices),
+        "devices": devices,
+    }
+
+
+@app.post("/social-media/permissions")
+async def save_social_media_permission(perm: SocialMediaPermissionIn, request: Request):
+    """
+    Habilita el acceso a Redes Sociales para un dispositivo:
+    - Asegura la existencia del Address Object en FortiOS.
+    - Agrega el objeto al grupo UNLOCK_TO_SOCIAL_MEDIA (Policy 34).
+    """
+    actor = _extract_actor(request)
+    mac = perm.mac.lower()
+    obj_name = _mac_to_object_name(mac)
+
+    # 1. Asegurar Address Object en FortiOS
+    obj_ok, obj_err = await _ensure_address_object(obj_name, mac, perm.description)
+    if not obj_ok:
+        raise HTTPException(
+            status_code=502,
+            detail=f"No se pudo crear o actualizar el objeto {obj_name} en el FortiGate: {obj_err}"
+        )
+
+    # 2. Agregar al grupo UNLOCK_TO_SOCIAL_MEDIA
+    group_name = SOCIAL_MEDIA_CONFIG["group_name"]
+    current_members = await _get_address_group_members(group_name)
+
+    already_in = (obj_name in current_members)
+    if not already_in:
+        current_members.append(obj_name)
+        ok = await _set_group_members(group_name, current_members)
+        if not ok:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo agregar {obj_name} al grupo {group_name}"
+            )
+
+    # 3. Auditoría
+    log_event(
+        event_type="SOCIAL_PERM",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=mac,
+        target_ip="Redes Sociales",
+        description=perm.description or f"Acceso Redes Sociales ({obj_name})",
+        details={
+            "object_name": obj_name,
+            "group": group_name,
+            "policy": SOCIAL_MEDIA_CONFIG["policy_name"],
+            "policy_id": SOCIAL_MEDIA_CONFIG["policy_id"],
+            "status": "Habilitado",
+        },
+        client_ip=actor["ip"],
+    )
+
+    return {
+        "success": True,
+        "message": f"Acceso a redes sociales habilitado para {mac} ({obj_name})",
+        "device": {
+            "object_name": obj_name,
+            "mac": mac,
+            "description": perm.description,
+            "enabled": True,
+        },
+    }
+
+
+@app.delete("/social-media/permissions/{mac}")
+async def revoke_social_media_permission(mac: str, request: Request):
+    """
+    Quita el dispositivo del grupo UNLOCK_TO_SOCIAL_MEDIA, revocando su acceso a redes sociales.
+    Nota importante: No elimina el objeto firewall si está siendo usado por otros grupos (ej: impresoras).
+    """
+    actor = _extract_actor(request)
+    raw_target = mac.strip()
+    clean_mac = raw_target.lower().replace("-", ":").replace(".", ":")
+    obj_name = raw_target if raw_target.startswith("MAC_") else _mac_to_object_name(clean_mac)
+
+    group_name = SOCIAL_MEDIA_CONFIG["group_name"]
+    current_members = await _get_address_group_members(group_name)
+
+    matched = [m for m in current_members if m == obj_name or m == raw_target]
+    if matched:
+        current_members = [m for m in current_members if m not in matched]
+        ok = await _set_group_members(group_name, current_members)
+        if not ok:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo remover {obj_name} del grupo {group_name}"
+            )
+
+    # Auditoría
+    log_event(
+        event_type="SOCIAL_REVOKE",
+        user_email=actor["email"],
+        user_name=actor["name"],
+        action_status="SUCCESS",
+        target_mac=clean_mac,
+        target_ip="Redes Sociales",
+        description=f"Acceso a Redes Sociales revocado ({obj_name})",
+        details={
+            "object_name": obj_name,
+            "group": group_name,
+            "policy": SOCIAL_MEDIA_CONFIG["policy_name"],
+            "policy_id": SOCIAL_MEDIA_CONFIG["policy_id"],
+            "status": "Revocado",
+        },
+        client_ip=actor["ip"],
+    )
+
+    return {
+        "success": True,
+        "message": f"Acceso a redes sociales revocado para {clean_mac}",
+    }
+
